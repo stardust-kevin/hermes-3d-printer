@@ -144,7 +144,7 @@ def cmd_selftest():
                 results.append((True, t(
                     f"TCP connectivity to {HOST}:{PORT} — OK",
                     f"到 {HOST}:{PORT} 的 TCP 连通性 — OK"
-                ))
+                )))
         except (socket.timeout, ConnectionRefusedError, OSError) as e:
             results.append((False, t(
                 f"TCP connectivity to {HOST}:{PORT} — FAIL: {e}",
