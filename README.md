@@ -1,3 +1,8 @@
+> ⚠️ **Status: Unverified / 未验证**
+> This skill has NOT been tested on real hardware yet.
+> Use at your own risk. Do NOT use for unattended printing.
+> 本 skill 尚未在真实硬件上验证。使用风险自负。禁止无人看管打印。
+
 <!-- Language Switcher / 语言切换 -->
 <p align="center">
   <a href="#english">English</a> ·
