@@ -1,7 +1,7 @@
 ---
 name: anet-a8
 description: "Anet A8 specific parameters and safety rules. Inherits generic 3D printer control from 3d-printer. 爱能特 A8 专属参数和安全规则，继承通用 3D 打印机控制层。"
-version: 1.0.0
+version: 1.1.0
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -87,19 +87,6 @@ Any `G1` move outside this range will crash the printer.
 
 任何超出此范围的 `G1` 移动都会导致撞机。
 
-## Setup / 配置
-
-Set in `${HERMES_HOME:-~/.hermes}/.env` / 在 `${HERMES_HOME:-~/.hermes}/.env` 中设置：
-
-```bash
-A8_ESP3D_HOST=192.168.1.100
-A8_ESP3D_PORT=8888
-```
-
-If the generic `PRINTER_HOST` is already set and points to the A8, you can skip this.
-
-如果通用层的 `PRINTER_HOST` 已设置并指向 A8，可跳过此步。
-
 ## Additional Safety Rules / 额外安全规则
 
 These rules are **in addition to** the generic safety rules in `3d-printer`. Both sets apply.
@@ -111,6 +98,18 @@ These rules are **in addition to** the generic safety rules in `3d-printer`. Bot
 3. **Y axis moves the bed.** Before any Y move, ensure nothing is blocking the bed's path. / **Y 轴移动热床。** 任何 Y 移动前，确保热床路径上无阻挡。
 4. **Z axis has two motors.** If one fails, the gantry tilts and the nozzle crashes. Check both motors after any Z issue. / **Z 轴有两个电机。** 如果一个失效，龙门倾斜，喷头撞机。Z 轴异常后检查两个电机。
 5. **PLA only by default.** Do not exceed 210°C hotend / 60°C bed without confirming the printer has an all-metal hotend. / **默认仅限 PLA。** 超过 210°C 喷头 / 60°C 热床前，确认打印机已改装全金属喷头。
+
+## Agent Safety Reminders / Agent 安全提示
+
+When issuing commands via `printer_write.py` for the Anet A8, you must enforce the A8's specific build volume:
+*   X: 0 to 220
+*   Y: 0 to 220
+*   Z: 0 to 380
+
+When calling the `move` command, always pass the bounds to the script to prevent mechanical crash:
+```bash
+python3 SKILL_DIR/../scripts/printer_write.py move --x 10 --y 20 --max-x 220 --max-y 220 --max-z 380
+```
 
 ## A8 Print Sequence / A8 打印序列
 
@@ -172,42 +171,6 @@ These are in addition to the generic troubleshooting in `3d-printer`.
 | Hotend temp reads 0 / 喷头温度读数为 0 | Thermistor disconnected / 热敏电阻断开 | **Power off**, check thermistor wiring / **断电**，检查热敏电阻接线 |
 | Bed temp reads 0 / 热床温度读数为 0 | Bed thermistor disconnected / 热床热敏电阻断开 | **Power off**, check bed thermistor / **断电**，检查热床热敏电阻 |
 
-## Verification / 验证
-
-After loading this skill, run the generic self-test with A8-specific env vars.
-
-加载本 skill 后，用 A8 专属环境变量运行通用自检。
-
-```bash
-# Self-test / 自检
-A8_ESP3D_HOST=192.168.1.100 python3 SKILL_DIR/../scripts/printer_control.py selftest
-
-# Query temperature / 查询温度
-A8_ESP3D_HOST=192.168.1.100 python3 SKILL_DIR/../scripts/printer_control.py query
-
-# Check endstops / 检查限位开关
-A8_ESP3D_HOST=192.168.1.100 python3 SKILL_DIR/../scripts/printer_control.py gcode "M119"
-```
-
-### Checklist / 检查清单
-
-- [ ] `A8_ESP3D_HOST` is set and reachable / `A8_ESP3D_HOST` 已设置且可达
-- [ ] `selftest` reports all PASS / `selftest` 全部通过
-- [ ] `M119` returns endstop status / `M119` 返回限位状态
-- [ ] `M115` returns firmware version / `M115` 返回固件版本
-- [ ] Temperature readings are not 0 / 温度读数不为 0
-
-## Notes / 注意事项
-
-- **Generic layer must be loaded first.** This skill assumes `3d-printer` is available. If not, load it manually with `skill_view("3d-printer")`.
-- **通用层必须先加载。** 本 skill 假设 `3d-printer` 可用。如果没有，手动用 `skill_view("3d-printer")` 加载。
-- **A8 is an open-frame printer.** No enclosure. Drafts, AC, and pets can affect print quality.
-- **A8 是开放式框架打印机。** 无外罩。气流、空调和宠物会影响打印质量。
-- **A8 v1.0-v1.5 boards are 8-bit.** They have limited processing power. Complex G-code may cause stuttering.
-- **A8 v1.0-v1.5 主板是 8 位。** 处理能力有限。复杂 G-code 可能导致卡顿。
-- **Always verify build volume before moving.** 220×220×380mm is the maximum. Do not assume.
-- **移动前始终确认打印范围。** 220×220×380mm 是最大值，不要假设。
-
 ## Platform Notes / 平台说明
 
 - **Linux / macOS**: Script runs natively. `nc` is available for port testing. / 脚本直接可用，`nc` 用于端口测试。
@@ -220,6 +183,7 @@ A8_ESP3D_HOST=192.168.1.100 python3 SKILL_DIR/../scripts/printer_control.py gcod
 ## Changelog / 变更记录
 
 - 2026-09-16: Initial release / 初始版本
+- 2026-10-24: Split scripts into read/write/print and refactored safety tiers. / 拆分脚本为 read/write/print，重构安全分级。
 
 ## License / 许可
 

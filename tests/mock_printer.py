@@ -58,6 +58,7 @@ class PrinterState:
         self.e = 0.0
         self.fan = 0
         self.motors_enabled = True
+        self.relative_mode = False   # G90 = absolute (default), G91 = relative
         self.endstops = {
             "X_MIN": "open",
             "Y_MIN": "open",
@@ -120,16 +121,26 @@ def handle_command(cmd: str, state: PrinterState) -> str:
     if code == "M155":
         return "ok"
 
+    # ----- Motion mode / 运动模式 -----
+    if code == "G90":
+        state.relative_mode = False
+        return "ok"
+
+    if code == "G91":
+        state.relative_mode = True
+        return "ok"
+
     # ----- Motion -----
     if code in ("G0", "G1"):
+        rel = state.relative_mode
         if "X" in params:
-            state.x = params["X"]
+            state.x = state.x + params["X"] if rel else params["X"]
         if "Y" in params:
-            state.y = params["Y"]
+            state.y = state.y + params["Y"] if rel else params["Y"]
         if "Z" in params:
-            state.z = params["Z"]
+            state.z = state.z + params["Z"] if rel else params["Z"]
         if "E" in params:
-            state.e += params["E"]
+            state.e = state.e + params["E"] if rel else params["E"]
         return "ok"
 
     if code == "G28":

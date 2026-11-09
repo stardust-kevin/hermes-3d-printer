@@ -1,343 +1,118 @@
-<!-- Language Switcher / 语言切换 -->
-<p align="center">
-  <a href="#english">English</a> ·
-  <a href="#中文">中文</a>
-</p>
+# Mock Printer Test Guide / 模拟打印机测试指南
 
----
+This directory contains a mock Marlin printer server. It allows you to test the `printer_read.py`, `printer_write.py`, and `printer_print.py` scripts without physical hardware.
 
-<a id="english"></a>
+本目录包含一个模拟 Marlin 打印机服务器。你可以用它来测试 `printer_read.py`、`printer_write.py` 和 `printer_print.py` 脚本，无需真实硬件。
 
-# Hermes 3D Printer Skill
+## Quick Start / 快速开始
 
-A Hermes Agent skill for controlling 3D printers via G-code over TCP/serial. Includes a generic communication layer and printer-specific child skills.
-
-**Pure Python 3 standard library. Zero third-party dependencies. No venv, no pip install needed.**
-
----
-
-## Quick Start
-
-### Requirements
-
-- Python 3.8 or newer
-- A network-reachable printer controller (ESP3D / OctoPrint / Moonraker)
-
-### Run directly (no installation)
+### Terminal 1: Start the mock server
 
 ```bash
-git clone https://github.com/stardust-kevin/hermes-3d-printer.git
-cd hermes-3d-printer
-
-# Run the script
-python3 scripts/printer_control.py
-```
-
-You will see the help message. **No `pip install`, no `source venv/bin/activate` required.**
-
----
-
-## Test with Mock Printer (recommended first)
-
-Before connecting to a real printer, verify the software logic with the built-in mock server.
-
-```bash
-# Terminal 1 — start the mock printer
 python3 tests/mock_printer.py
-
-# Terminal 2 — run self-test
-PRINTER_HOST=127.0.0.1 PRINTER_PORT=8888 \
-  python3 scripts/printer_control.py selftest
 ```
 
-Expected output:
-
-```
-=== Self-test results ===
-  [PASS] PRINTER_HOST = 127.0.0.1
-  [PASS] PRINTER_PORT = 8888
-  [PASS] PRINTER_TIMEOUT = 10s
-  [PASS] TCP connectivity to 127.0.0.1:8888 — OK
-  [PASS] M105 temperature query — OK
-All checks passed.
-```
-
-The mock supports multiple failure scenarios (timeout, garbled, error, disconnect). See `tests/README.md` for details.
-
----
-
-## Connect to a Real Printer
-
-### 1. Set environment variables
-
-Add to `${HERMES_HOME:-~/.hermes}/.env`:
+### Terminal 2: Run the read/write tests
 
 ```bash
-# Generic layer
-PRINTER_HOST=192.168.1.100
-PRINTER_PORT=8888
+# Set environment
+export PRINTER_HOST=127.0.0.1
+export PRINTER_PORT=8888
 
-# Anet A8 child skill (optional, overrides PRINTER_HOST)
-A8_ESP3D_HOST=192.168.1.100
-A8_ESP3D_PORT=8888
+# Test status query (JSON)
+python3 scripts/printer_read.py status --json
 
-# Optional
-PRINTER_TIMEOUT=10
-PRINTER_LANG=en   # or zh
+# Test safe movement
+python3 scripts/printer_write.py move --x 10 --y 20 --f 3000
+
+# Test unsafe movement (should be blocked by bounds checking)
+python3 scripts/printer_write.py move --x 500 --max-x 220
+
+# Test cold extrusion prevention (should fail if temp < 170)
+python3 scripts/printer_write.py extrude --mm 10
 ```
 
-### 2. Test connectivity
+### Terminal 2: Test FIFO Streaming
+
+You can generate a dummy G-code file and test the FIFO flow control:
 
 ```bash
-source ~/.hermes/.env
+# Generate a 1000-line dummy G-code file
+for i in {1..1000}; do echo "G1 X$((i%100)) Y$((i%100)) F3000"; done > test_print.gcode
 
-# Test TCP connectivity
-python3 scripts/printer_control.py ping
-
-# Query temperature and position
-python3 scripts/printer_control.py query
-
-# Send G-code
-python3 scripts/printer_control.py gcode "M105"
+# Stream it using the FIFO buffer (window size 5)
+python3 scripts/printer_print.py test_print.gcode --window 5
 ```
 
-### 3. Use with Hermes
+## Failure Scenarios / 异常场景测试
 
-Place the skill directory at `~/.hermes/skills/make/3d-printer/`, then talk to Hermes:
+The mock server can simulate various network and firmware errors. Stop the normal server and start it with a specific `--scenario`:
 
-- "Query A8 printer status"
-- "Home all axes on the A8"
-- "Turn off the hotend and bed"
+模拟服务器可以模拟各种网络和固件错误。停止正常服务器，使用特定的 `--scenario` 启动：
 
----
-
-## Script Commands
+### 1. Printer is busy / 打印机忙碌
+Simulates an 8-bit MCU struggling to keep up. The first 3 commands return `busy: processing`.
+模拟 8 位 MCU 处理不过来。前 3 条指令返回 `busy`。
 
 ```bash
-python3 scripts/printer_control.py <command>
-
-Commands:
-  query         Query temperature and position
-  gcode "CMD"   Send one or more G-code commands
-  progress      Query print progress (M27)
-  info          Query firmware info (M115)
-  ping          Test TCP connectivity
-  selftest      Run full self-test
+python3 tests/mock_printer.py --scenario busy
 ```
+*Expected*: The Python scripts should wait for the `busy` state to clear and eventually succeed.
 
----
-
-## Directory Structure
-
-```
-hermes-3d-printer/
-├── SKILL.md                        # Generic layer instructions
-├── scripts/
-│   └── printer_control.py          # Generic comms script (zero deps)
-├── references/
-│   ├── gcode-universal.md          # Universal G-code reference
-│   └── troubleshooting.md          # Universal error handling
-├── anet-a8/
-│   ├── SKILL.md                    # Anet A8 specific parameters
-│   └── references/
-│       └── a8-specifics.md         # Anet A8 hardware details
-├── tests/
-│   ├── mock_printer.py             # Mock printer (zero deps)
-│   └── README.md                   # Test guide
-└── README.md
-```
-
----
-
-## FAQ
-
-**Q: Do I need a venv or pip install?**
-
-No. All scripts use only the Python 3 standard library. Any system with Python 3.8+ can run them directly.
-
-**Q: Does it work on Windows?**
-
-Yes. Pure Python, cross-platform. For `ping`, Windows uses `Test-NetConnection` instead of `nc`.
-
-**Q: Which printers are supported?**
-
-The generic layer works with any Marlin/RepRap-style printer. `anet-a8` is currently provided as a child skill. More models can be added.
-
-**Q: Is it safe?**
-
-The skill enforces: user confirmation before heating, starting a print, or emergency stop. The stock Anet A8 firmware has no thermal runaway protection — never leave a heated printer unattended.
-
----
-
-## License
-
-MIT
-
----
-
-<a id="中文"></a>
-
-# Hermes 3D 打印机 Skill
-
-一个用于控制 3D 打印机的 Hermes Agent skill，通过 TCP/串口发送 G-code。包含通用通信层和打印机专属子 skill。
-
-**纯 Python 3 标准库，零第三方依赖。不需要 venv，不需要 pip install。**
-
----
-
-## 快速开始
-
-### 环境要求
-
-- Python 3.8 或更高
-- 网络可达的打印机控制器（ESP3D / OctoPrint / Moonraker）
-
-### 直接运行（无需安装）
+### 2. Slow response / 响应缓慢
+Adds a 3-second delay to every response.
+每次响应延迟 3 秒。
 
 ```bash
-git clone https://github.com/stardust-kevin/hermes-3d-printer.git
-cd hermes-3d-printer
-
-# 直接运行脚本
-python3 scripts/printer_control.py
+python3 tests/mock_printer.py --scenario slow
 ```
+*Expected*: The script should handle the delay without timing out (default timeout is 10s).
 
-你会看到帮助信息。**不需要 `pip install`，不需要 `source venv/bin/activate`。**
-
----
-
-## 用模拟打印机测试（推荐先做）
-
-在连接真实打印机之前，先用内置的 mock 服务器验证软件逻辑。
+### 3. Error / 固件报错
+Every command returns an `Error:`.
+所有指令返回 `Error:`。
 
 ```bash
-# 终端 1：启动模拟打印机
-python3 tests/mock_printer.py
-
-# 终端 2：运行自检
-PRINTER_HOST=127.0.0.1 PRINTER_PORT=8888 \
-  python3 scripts/printer_control.py selftest
+python3 tests/mock_printer.py --scenario error
 ```
+*Expected*: `printer_write.py` should exit with code 1 and print the error message.
 
-预期输出：
-
-```
-=== Self-test results ===
-  [PASS] PRINTER_HOST = 127.0.0.1
-  [PASS] PRINTER_PORT = 8888
-  [PASS] PRINTER_TIMEOUT = 10s
-  [PASS] TCP connectivity to 127.0.0.1:8888 — OK
-  [PASS] M105 temperature query — OK
-All checks passed.
-```
-
-模拟服务器支持多种异常场景（超时、乱码、错误、断连），详见 `tests/README.md`。
-
----
-
-## 连接真实打印机
-
-### 1. 配置环境变量
-
-在 `${HERMES_HOME:-~/.hermes}/.env` 中添加：
+### 4. Garbled / 乱码
+Returns random characters instead of `ok`.
+返回随机字符而不是 `ok`。
 
 ```bash
-# 通用层
-PRINTER_HOST=192.168.1.100
-PRINTER_PORT=8888
-
-# 爱能特 A8 子 skill（可选，覆盖 PRINTER_HOST）
-A8_ESP3D_HOST=192.168.1.100
-A8_ESP3D_PORT=8888
-
-# 可选
-PRINTER_TIMEOUT=10
-PRINTER_LANG=zh   # 或 en
+python3 tests/mock_printer.py --scenario garbled
 ```
+*Expected*: The Python script should timeout or fail parsing gracefully.
 
-### 2. 测试连通性
+### 5. Disconnect / 断连
+Closes the connection immediately after the first response.
+首次响应后立即关闭连接。
 
 ```bash
-source ~/.hermes/.env
-
-# 测试 TCP 连通性
-python3 scripts/printer_control.py ping
-
-# 查询温度和位置
-python3 scripts/printer_control.py query
-
-# 发送 G-code
-python3 scripts/printer_control.py gcode "M105"
+python3 tests/mock_printer.py --scenario disconnect
 ```
+*Expected*: The script should raise a `ConnectionError`.
 
-### 3. 在 Hermes 中使用
-
-Skill 目录放到 `~/.hermes/skills/make/3d-printer/` 后，直接对 Hermes 说：
-
-- “查询 A8 打印机状态”
-- “A8 全轴归零”
-- “关闭喷头和热床”
-
----
-
-## 脚本命令速查
+### 6. Timeout / 超时
+Accepts the connection but never responds.
+接受连接但永不响应。
 
 ```bash
-python3 scripts/printer_control.py <命令>
-
-命令：
-  query         查询温度和位置
-  gcode "CMD"   发送一条或多条 G-code
-  progress      查询打印进度 (M27)
-  info          查询固件信息 (M115)
-  ping          测试 TCP 连通性
-  selftest      运行完整自检
+python3 tests/mock_printer.py --scenario timeout
 ```
+*Expected*: The Python script should timeout after `PRINTER_TIMEOUT` seconds.
 
----
+## Troubleshooting / 排障
 
-## 目录结构
+If the mock server says "Address already in use", another instance is running. Find and kill it:
+如果提示端口被占用，说明有另一个实例在运行。找到并关闭它：
 
+```bash
+# Linux / macOS
+lsof -i :8888
+
+# Windows
+netstat -ano | findstr :8888
 ```
-hermes-3d-printer/
-├── SKILL.md                        # 通用层指令
-├── scripts/
-│   └── printer_control.py          # 通用通信脚本（零依赖）
-├── references/
-│   ├── gcode-universal.md          # 通用 G-code 参考
-│   └── troubleshooting.md          # 通用异常处理
-├── anet-a8/
-│   ├── SKILL.md                    # 爱能特 A8 专属参数
-│   └── references/
-│       └── a8-specifics.md         # A8 硬件细节
-├── tests/
-│   ├── mock_printer.py             # 模拟打印机（零依赖）
-│   └── README.md                   # 测试说明
-└── README.md
-```
-
----
-
-## 常见问题
-
-**Q: 需要 `venv` 或 `pip install` 吗？**
-
-不需要。所有脚本仅使用 Python 3 标准库。任何有 Python 3.8+ 的系统都能直接运行。
-
-**Q: Windows 上能跑吗？**
-
-能。脚本纯 Python，跨平台。`ping` 命令在 Windows 上用 `Test-NetConnection` 替代 `nc`。
-
-**Q: 支持哪些打印机？**
-
-通用层支持任何 Marlin/RepRap 风格打印机。目前有 `anet-a8` 子 skill，未来可扩展其他型号。
-
-**Q: 安全吗？**
-
-Skill 强制要求：加热、开始打印、急停前必须用户确认。A8 原厂固件无热失控保护，加热时绝不能无人看管。
-
----
-
-## 许可
-
-MIT

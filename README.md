@@ -26,8 +26,8 @@ A Hermes Agent skill for controlling 3D printers via G-code over TCP/serial. Inc
 - **Child skills** — printer-specific parameters overlay the generic layer (currently `anet-a8`)
 - **Pure Python 3 stdlib** — no external dependencies, no `pip install` required
 - **Bilingual** — English and Chinese output via `PRINTER_LANG`
-- **Safety-first** — mandatory confirmation before heating, homing, or starting prints
-- **Self-test built in** — `selftest` command verifies environment, connectivity, and firmware
+- **Tiered Safety** — strict user confirmation for high-risk actions (heating/printing), while script-level checks prevent physical crashes (cold extrusion, out-of-bounds moves)
+- **FIFO Streaming** — built-in flow control to print large G-code files without overflowing the MCU buffer
 
 ## Supported Printers
 
@@ -94,23 +94,23 @@ Once the skill is loaded, ask Hermes in natural language:
 "Query the A8 printer status"
 "Home all axes on the A8"
 "Turn off the hotend and bed"
-"Send M105 to the printer"
+"Start printing benchy.gcode"
 ```
 
-Or use the helper script directly:
+Or use the helper scripts directly:
 
 ```bash
-# Self-test
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py selftest
+# Read-only status (Temperature, Position, Endstops in JSON)
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_read.py status --json
 
-# Query temperature and position
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py query
+# Move axes safely (with bounds checking)
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py move --x 10 --y 10 --f 3000 --max-x 220 --max-y 220
 
-# Send G-code
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py gcode "G28"
+# Heat (Requires user confirmation)
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py heat --hotend 200 --bed 60
 
-# Chinese output
-PRINTER_LANG=zh python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py query
+# Stream a G-code file using FIFO
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_print.py my_model.gcode
 ```
 
 ## Safety
@@ -119,12 +119,9 @@ PRINTER_LANG=zh python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control
 
 Mandatory rules enforced by the skill:
 
-1. Confirm before any heating command (`M104`, `M109`, `M140`, `M190`)
-2. Confirm before starting a print
-3. Confirm before cancel or emergency stop
-4. Coordinate range check before any `G1` move
-5. Confirm hotend ≥ 180°C before extruding
-6. Never leave long prints unattended
+- 🔴 **Level 2 (Requires Clarification)**: Heating (`heat`), Printing (`printer_print.py`), EEPROM saves/resets.
+- 🟡 **Level 1 (Script Enforced)**: Cold extrusion prevention (blocks `extrude` if temp < 170°C).
+- 🟢 **Level 0 (Safe)**: Queries, movements (bounds enforced), cooling down.
 
 **The stock Anet A8 firmware has NO thermal runaway protection.** Never leave a heated printer unattended.
 
@@ -134,7 +131,10 @@ Mandatory rules enforced by the skill:
 3d-printer/
 ├── SKILL.md                        # Generic layer instructions
 ├── scripts/
-│   └── printer_control.py          # Generic TCP communication helper
+│   ├── printer_comm.py             # Low-level TCP communication & FIFO
+│   ├── printer_read.py             # Read-only status queries (JSON)
+│   ├── printer_write.py            # Semantic control executor
+│   └── printer_print.py            # G-code file streaming
 ├── references/
 │   ├── gcode-universal.md          # Universal G-code reference
 │   └── troubleshooting.md          # Universal error handling
@@ -181,8 +181,8 @@ Contributions welcome. To add a new printer:
 - **子 skill**——打印机专属参数叠加在通用层之上（当前支持 `anet-a8`）
 - **纯 Python 3 标准库**——无外部依赖，无需 `pip install`
 - **中英双语**——通过 `PRINTER_LANG` 切换输出语言
-- **安全优先**——加热、归零、开始打印前强制确认
-- **内置自检**——`selftest` 命令验证环境、连通性和固件
+- **分级安全机制**——高危操作（加热/打印）强制要求用户确认，而底层脚本会进行物理保护（防冷挤出、防越界撞机）
+- **FIFO 流控**——内置滑动窗口流控，打印大型 G-code 文件不会撑爆主板缓存
 
 ## 支持的打印机
 
@@ -249,37 +249,34 @@ Skill 加载后，用自然语言向 Hermes 提问：
 "查询 A8 打印机状态"
 "A8 全轴归零"
 "关闭喷头和热床"
-"给打印机发送 M105"
+"开始打印 benchy.gcode"
 ```
 
 或直接使用辅助脚本：
 
 ```bash
-# 自检
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py selftest
+# 只读状态查询（温度、位置、限位以 JSON 格式输出）
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_read.py status --json
 
-# 查询温度和位置
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py query
+# 安全移动（带边界检查）
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py move --x 10 --y 10 --f 3000 --max-x 220 --max-y 220
 
-# 发送 G-code
-python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py gcode "G28"
+# 加热（需用户确认后执行）
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py heat --hotend 200 --bed 60
 
-# 中文输出
-PRINTER_LANG=zh python3 ~/.hermes/skills/make/3d-printer/scripts/printer_control.py query
+# 使用 FIFO 流控打印 G-code 文件
+python3 ~/.hermes/skills/make/3d-printer/scripts/printer_print.py my_model.gcode
 ```
 
 ## 安全须知
 
 **本 skill 控制物理硬件。误用可能导致火灾或设备损坏。**
 
-Skill 强制执行的规则：
+Skill 强制执行的安全分级：
 
-1. 任何加热命令（`M104`、`M109`、`M140`、`M190`）前必须确认
-2. 开始打印前必须确认
-3. 取消或急停前必须确认
-4. 任何 `G1` 移动前进行坐标范围检查
-5. 挤出前确认喷头 ≥ 180°C
-6. 长打印任务不要无人看管
+- 🔴 **Level 2（需用户确认）**：加热（`heat`）、开始打印（`printer_print.py`）、EEPROM 保存/重置。
+- 🟡 **Level 1（脚本强制拦截）**：防冷挤出（如果温度 < 170°C，`extrude` 会被拒绝）。
+- 🟢 **Level 0（安全）**：状态查询、移动（强制边界检查）、关闭加热。
 
 **爱能特 A8 原厂固件没有热失控保护。** 加热时绝不能无人看管。
 
@@ -289,7 +286,10 @@ Skill 强制执行的规则：
 3d-printer/
 ├── SKILL.md                        # 通用层指令
 ├── scripts/
-│   └── printer_control.py          # 通用 TCP 通信脚本
+│   ├── printer_comm.py             # 底层 TCP 通信与流控
+│   ├── printer_read.py             # 只读状态查询 (JSON)
+│   ├── printer_write.py            # 语义化控制执行器
+│   └── printer_print.py            # G-code 文件流控打印
 ├── references/
 │   ├── gcode-universal.md          # 通用 G-code 参考
 │   └── troubleshooting.md          # 通用异常处理
