@@ -101,10 +101,14 @@ def main():
         elif args.command == "heat":
             if args.hotend is not None:
                 code = "M109" if args.wait else "M104"
-                comm.send_command(f"{code} S{args.hotend}", wait_ok=not args.wait)
+                status, lines = comm.send_command(f"{code} S{args.hotend}", wait_ok=not args.wait)
+                if status == 1:
+                    raise ValueError(f"Printer rejected command: {' '.join(lines)}")
             if args.bed is not None:
                 code = "M190" if args.wait else "M140"
-                comm.send_command(f"{code} S{args.bed}", wait_ok=not args.wait)
+                status, lines = comm.send_command(f"{code} S{args.bed}", wait_ok=not args.wait)
+                if status == 1:
+                    raise ValueError(f"Printer rejected command: {' '.join(lines)}")
             print("ok")
 
         elif args.command == "extrude":

@@ -1,7 +1,7 @@
 ---
 name: 3d-printer
 description: "Generic 3D printer control via G-code over TCP/serial. Query status, send commands, manage prints. 通用 3D 打印机控制，通过 G-code 通信，支持状态查询、命令发送和打印管理。"
-version: 1.4.0
+version: 1.4.1
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -52,7 +52,13 @@ You **MUST** use the `Clarify` tool to get explicit user confirmation before exe
 
 ## Helper Scripts / 辅助脚本
 
-**CRITICAL RULE**: You MUST use the absolute path `/opt/data/skills/make/3d-printer/scripts/` when running these scripts. Do NOT use relative paths.
+**CRITICAL RULES**:
+1.  You MUST use the absolute path `/opt/data/skills/make/3d-printer/scripts/` when running these scripts. Do NOT use relative paths.
+2.  **NEVER execute raw G-code (like G28, M104, G1) directly in the Terminal shell.** The Terminal only runs Python scripts. You MUST use the provided Python scripts to send G-code to the printer. If you want to send a raw G-code, use the `passthrough` command.
+
+**极重要规则**：
+1. 运行脚本时必须使用绝对路径 `/opt/data/skills/make/3d-printer/scripts/`，禁止使用相对路径。
+2. **绝对禁止在 Terminal 中直接执行原始 G-code（如 G28、M104、G1）**。Terminal 只能执行 Python 脚本。你必须通过提供的 Python 脚本来发送指令。如果你想发送原始 G-code，请使用 `passthrough` 命令。
 
 ### 1. Status Read / 状态查询
 ```bash
@@ -66,6 +72,10 @@ python3 /opt/data/skills/make/3d-printer/scripts/printer_read.py bounds --json
 ### 2. Motion & Control / 运动与控制
 ```bash
 # Note: Do NOT pass --max-x/y/z manually. The script handles bounds internally.
+# Home axes:
+python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py home
+
+# Move axes:
 python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py move --x 10 --y 10 --f 3000
 ```
 
@@ -113,6 +123,10 @@ If the user asks for the maximum build volume, you MUST run `python3 /opt/data/s
 3. **Handling Connection Errors / 处理连接失败**: If a script returns a `ConnectionError`, use the `Clarify` tool to ask the user for the correct IP/Port, and then use `--host` and `--port` for that specific session.
 
 ## Troubleshooting Rules / 异常处理铁律
+
+**NEVER LOOP ON ERRORS / 绝对禁止报错死循环**:
+If a script returns an error (especially containing "halted" or "error"), you MUST STOP immediately. Do NOT ask the user for confirmation again. Report the exact error to the user and wait for their instruction. If the printer is in a `halted` state, you must suggest the user to run `python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py passthrough "M999"` to reset it.
+如果脚本返回错误（特别是包含 "halted" 或 "error"），你必须立刻停止。**绝对禁止**再次向用户弹窗确认。原样向用户报告错误并等待指示。如果打印机处于 `halted`（挂起）状态，你必须建议用户运行 `passthrough "M999"` 来复位打印机。
 
 If a `Terminal` tool call returns an error, you MUST report the EXACT raw error output to the user.
 DO NOT guess or invent environmental issues (like "Docker daemon down", "files missing", or "network disconnected").

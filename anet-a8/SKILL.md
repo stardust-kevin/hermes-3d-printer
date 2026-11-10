@@ -1,7 +1,7 @@
 ---
 name: anet-a8
 description: "Anet A8 specific parameters and safety rules. Inherits generic 3D printer control from 3d-printer. 爱能特 A8 专属参数和安全规则，继承通用 3D 打印机控制层。"
-version: 1.2.0
+version: 1.3.0
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -31,7 +31,7 @@ The maximum build volume (physical limits) of this machine is:
 *   **Y: 0 to 220 mm**
 *   **Z: 0 to 380 mm**
 
-**CRITICAL**: If the user requests a move to a coordinate exceeding these limits, you must immediately reject it and inform the user. DO NOT ask the user for the dimensions. You already know the dimensions from this document.
+**CRITICAL**: The Python scripts automatically read these limits from the `.env` file and strictly enforce them. If the user requests a move exceeding these limits, the script will throw an error. DO NOT attempt to calculate or guess the bounds yourself.
 
 **你正在控制一台爱能特 A8 打印机。**
 该机器的最大打印范围（物理极限）是：
@@ -39,7 +39,7 @@ The maximum build volume (physical limits) of this machine is:
 *   **Y: 0 到 220 mm**
 *   **Z: 0 到 380 mm**
 
-**极重要**：如果用户要求移动的坐标超出这些限制，你必须立刻拒绝并告知用户。**绝对不要**去问用户尺寸，因为你从这份文档里已经知道尺寸了。
+**极重要**：Python 脚本会自动从 `.env` 读取这些限制并进行严格拦截。如果用户要求移动的坐标超出限制，脚本会自动报错。**绝对不要**自己去计算或猜测边界尺寸。
 
 ## When to use / 适用场景
 
@@ -117,26 +117,25 @@ These rules are **in addition to** the generic safety rules in `3d-printer`. Bot
 
 ## CRITICAL Safety Reminders / 强制执行的安全规范
 
-When sending movement commands via `printer_write.py`, you MUST strictly follow these rules:
+When sending movement commands, you MUST strictly follow these rules:
 
-在通过 `printer_write.py` 发送移动指令时，你必须严格遵守以下规则：
+在发送移动指令时，你必须严格遵守以下规则：
 
-1. **ALWAYS pass the bounds / 必须传入边界**：
-   Every time you call `printer_write.py move`, you **MUST** explicitly pass `--max-x 220 --max-y 220 --max-z 380`.
-   每次调用 `move` 时，你**必须**显式传入 `--max-x 220 --max-y 220 --max-z 380`。
-   *Example*: `python3 .../printer_write.py move --x 10 --y 10 --max-x 220 --max-y 220 --max-z 380`
+1. **DO NOT run G-code directly / 绝对禁止直接运行 G-code**：
+   You MUST use the `printer_write.py` script for motion and control. NEVER type `G28` or `G1` directly into the Terminal shell. The shell does not understand G-code.
+   你**必须**使用 `printer_write.py` 脚本进行控制。**绝对禁止**在 Terminal 中直接输入 `G28` 或 `G1`。Shell 无法识别 G-code。
 
-2. **Reject absolute out-of-bounds immediately / 立刻拒绝绝对越界**：
-   Before executing, calculate the target position. If the user asks to move to a position exceeding X:220, Y:220, or Z:380, you **MUST REJECT** the request immediately and inform the user. **DO NOT RUN THE SCRIPT**.
-   在执行前，先计算目标位置。如果用户要求的位置超出了 X:220, Y:220, Z:380，你**必须立刻拒绝**，并告诉用户越界，**绝对禁止运行脚本**。
+2. **DO NOT pass max bounds manually / 绝对不要手动传入边界参数**：
+   The Python script (`printer_comm.py`) automatically reads the true physical bounds from the `.env` file. You **DO NOT** need to pass `--max-x`, `--max-y`, or `--max-z`. Just provide the target coordinates. If the target is out of bounds, the script will throw an error automatically.
+   底层的 Python 脚本会自动从 `.env` 读取真实的物理边界。你**完全不需要**传入 `--max-x`、`--max-y` 或 `--max-z`。只需提供目标坐标即可。如果越界，脚本会自动报错拦截。
 
-3. **CRITICAL: Verify relative moves / 极度重要：验证相对移动**：
-   The `--max-x/y/z` arguments in the script only check the *distance* of a relative move, NOT the final absolute position.
-   If you use `--relative` (e.g., "move right 10mm"), you **MUST** first query the current position using `printer_read.py status --json`.
-   Calculate `current_X + relative_X`. If the result exceeds 220 (or Y>220, Z>380), you **MUST REJECT** the relative move.
-   脚本中的 `--max-x/y/z` 参数只检查相对移动的*距离*，不检查最终的绝对位置。
-   如果你使用 `--relative`（例如“向右移动 10mm”），你**必须**先调用 `printer_read.py status --json` 查询当前位置。
-   计算 `当前X + 相对X`。如果结果超过 220（或 Y>220, Z>380），你**必须拒绝**该相对移动。
+3. **Reject absolute out-of-bounds immediately / 立刻拒绝绝对越界**：
+   Even though the script enforces safety, you must also do a pre-check. If the user asks to move to a position exceeding X:220, Y:220, or Z:380, you **MUST REJECT** the request immediately and inform the user. **DO NOT RUN THE SCRIPT**.
+   尽管脚本有安全强制措施，你依然要进行预检查。如果用户要求移动的绝对坐标超出了 X:220, Y:220, Z:380，你**必须立刻拒绝**并告知用户越界，**绝对禁止执行脚本**。
+
+4. **CRITICAL: Verify relative moves / 极度重要：验证相对移动**：
+   If you use `--relative` (e.g., "move right 10mm"), you **MUST** first query the current position using `printer_read.py status --json`. Calculate `current_X + relative_X`. If the final absolute position exceeds the bounds, you **MUST REJECT** the relative move.
+   如果你使用 `--relative`（例如“向右移动 10mm”），你**必须**先调用 `printer_read.py status --json` 查询当前位置。计算 `当前X + 相对X`。如果最终的绝对坐标超出范围，你**必须拒绝**该相对移动。
 
 ## A8 Print Sequence / A8 打印序列
 
@@ -211,7 +210,8 @@ These are in addition to the generic troubleshooting in `3d-printer`.
 
 - 2026-09-16: Initial release / 初始版本
 - 2026-10-24: Split scripts into read/write/print and refactored safety tiers. / 拆分脚本为 read/write/print，重构安全分级。
-- 2026-11-09: Added System Identity block and simplified bounds handling. / 增加系统身份声明并简化边界处理。
+- 2026-11-09: Added System Identity block and removed manual max-bound args to prevent LLM hallucinations. / 增加系统身份声明，移除手动传边界参数的要求以防止 LLM 幻觉。
+- 2026-11-10: Explicitly ban executing raw G-code in the shell. / 明确禁止在 Shell 中直接执行原始 G-code。
 
 ## License / 许可
 
