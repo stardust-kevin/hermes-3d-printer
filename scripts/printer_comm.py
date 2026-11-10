@@ -8,6 +8,19 @@ import socket
 import time
 import re
 
+# --- MINIMAL ADDITION: Load local .env file from the skill root directory ---
+SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_FILE = os.path.join(SKILL_ROOT, ".env")
+if os.path.exists(ENV_FILE):
+    with open(ENV_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                if key.strip() not in os.environ:
+                    os.environ[key.strip()] = val.strip()
+# ---------------------------------------------------------------------------
+
 class PrinterComm:
     """Low-level communication for Marlin firmware over TCP."""
 
@@ -18,6 +31,12 @@ class PrinterComm:
         self.timeout = timeout
         self.sock = None
         self.buffer = ""
+
+        # --- MINIMAL ADDITION: Load safety bounds from environment ---
+        self.max_x = float(os.environ.get("PRINTER_MAX_X", 999.0))
+        self.max_y = float(os.environ.get("PRINTER_MAX_Y", 999.0))
+        self.max_z = float(os.environ.get("PRINTER_MAX_Z", 999.0))
+        # -------------------------------------------------------------
 
     def connect(self):
         """Establish TCP connection to ESP3D."""
@@ -127,7 +146,7 @@ class PrinterComm:
                 continue
 
             lower_line = line.lower()
-            if lower_line.startswith("ok"):
+            if lower_line == "ok" or lower_line.startswith("ok "):
                 acked_idx += 1
                 yield int((acked_idx / total) * 100)
             elif lower_line.startswith("busy:"):

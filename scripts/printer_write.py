@@ -16,55 +16,67 @@ def check_safe_extrude(comm):
 
 def main():
     parser = argparse.ArgumentParser(description="Control 3D printer")
-    parser.add_argument("--host", help="Printer IP address")
-    parser.add_argument("--port", type=int, help="Printer port (default 8888)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # 1. Move
     p_move = subparsers.add_parser("move", help="Move axes")
     p_move.add_argument("--x", type=float)
     p_move.add_argument("--y", type=float)
     p_move.add_argument("--z", type=float)
     p_move.add_argument("--f", type=int, default=3000, help="Feedrate mm/min")
     p_move.add_argument("--relative", action="store_true", help="Relative move")
-    p_move.add_argument("--max-x", type=float, default=999, help="Safety limit X")
-    p_move.add_argument("--max-y", type=float, default=999, help="Safety limit Y")
-    p_move.add_argument("--max-z", type=float, default=999, help="Safety limit Z")
+    # Arguments kept for compatibility but overridden by .env
+    p_move.add_argument("--max-x", type=float, default=999, help="Ignored. Uses .env")
+    p_move.add_argument("--max-y", type=float, default=999, help="Ignored. Uses .env")
+    p_move.add_argument("--max-z", type=float, default=999, help="Ignored. Uses .env")
 
+    # 2. Home
     p_home = subparsers.add_parser("home", help="Home axes")
     p_home.add_argument("--axes", nargs="+", choices=["X", "Y", "Z"], help="Specific axes")
 
+    # 3. Heat
     p_heat = subparsers.add_parser("heat", help="Set temperature")
     p_heat.add_argument("--hotend", type=int)
     p_heat.add_argument("--bed", type=int)
     p_heat.add_argument("--wait", action="store_true", help="Block until target reached")
 
+    # 4. Extrude
     p_ext = subparsers.add_parser("extrude", help="Extrude or retract filament")
     p_ext.add_argument("--mm", type=float, required=True, help="Positive to extrude, negative to retract")
     p_ext.add_argument("--f", type=int, default=300, help="Feedrate")
 
+    # 5. Cool
     subparsers.add_parser("cool", help="Turn off all heaters")
 
+    # 6. Fan
     p_fan = subparsers.add_parser("fan", help="Control fan speed")
     p_fan.add_argument("--speed", type=int, required=True, help="0 to 255")
 
+    # 7. Motors
     p_motor = subparsers.add_parser("motors", help="Enable or disable motors")
     p_motor.add_argument("state", choices=["on", "off"])
 
+    # 8. Estop
     subparsers.add_parser("estop", help="Emergency stop")
 
+    # 9. Passthrough
     p_pass = subparsers.add_parser("passthrough", help="Send raw G-code")
     p_pass.add_argument("gcode", help="Raw G-code string")
 
     args = parser.parse_args()
-    comm = PrinterComm(host=args.host, port=args.port)
+    comm = PrinterComm()
 
     try:
         comm.connect()
 
         if args.command == "move":
-            if args.x is not None and abs(args.x) > args.max_x: raise ValueError(f"X out of bounds (max: {args.max_x})")
-            if args.y is not None and abs(args.y) > args.max_y: raise ValueError(f"Y out of bounds (max: {args.max_y})")
-            if args.z is not None and abs(args.z) > args.max_z: raise ValueError(f"Z out of bounds (max: {args.max_z})")
+            # Level 0 Safety: Use physical bounds from .env via comm
+            if args.x is not None and (args.x > comm.max_x or args.x < 0):
+                raise ValueError(f"X out of bounds (0 to {comm.max_x})")
+            if args.y is not None and (args.y > comm.max_y or args.y < 0):
+                raise ValueError(f"Y out of bounds (0 to {comm.max_y})")
+            if args.z is not None and (args.z > comm.max_z or args.z < 0):
+                raise ValueError(f"Z out of bounds (0 to {comm.max_z})")
 
             if args.relative:
                 comm.send_command("G91")

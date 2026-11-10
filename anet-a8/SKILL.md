@@ -1,7 +1,7 @@
 ---
 name: anet-a8
 description: "Anet A8 specific parameters and safety rules. Inherits generic 3D printer control from 3d-printer. 爱能特 A8 专属参数和安全规则，继承通用 3D 打印机控制层。"
-version: 1.1.0
+version: 1.2.0
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -22,6 +22,24 @@ metadata:
 Anet A8 specific parameters, hardware mapping, and safety rules. This skill **inherits** the generic communication layer, safety framework, and error handling from `3d-printer`. Load that skill first if it is not already loaded.
 
 爱能特 A8 专属参数、硬件映射和安全规则。本 skill **继承** `3d-printer` 的通用通信层、安全框架和异常处理。如果尚未加载通用层，请先加载。
+
+## System Identity / 系统身份
+
+**You are controlling an Anet A8 printer.**
+The maximum build volume (physical limits) of this machine is:
+*   **X: 0 to 220 mm**
+*   **Y: 0 to 220 mm**
+*   **Z: 0 to 380 mm**
+
+**CRITICAL**: If the user requests a move to a coordinate exceeding these limits, you must immediately reject it and inform the user. DO NOT ask the user for the dimensions. You already know the dimensions from this document.
+
+**你正在控制一台爱能特 A8 打印机。**
+该机器的最大打印范围（物理极限）是：
+*   **X: 0 到 220 mm**
+*   **Y: 0 到 220 mm**
+*   **Z: 0 到 380 mm**
+
+**极重要**：如果用户要求移动的坐标超出这些限制，你必须立刻拒绝并告知用户。**绝对不要**去问用户尺寸，因为你从这份文档里已经知道尺寸了。
 
 ## When to use / 适用场景
 
@@ -46,9 +64,7 @@ Use when the user mentions / 用户提到以下内容时使用：
 | 项目 / Item | 值 / Value |
 |---|---|
 | 打印机 / Printer | Anet A8（原厂 v1.0-v1.5 主板，Marlin 固件） |
-| 打印范围 / Build volume | **220 × 220 × 380 mm**（22cm × 22cm × 38cm） |
 | 桥接 / Bridge | ESP8266/ESP32 + ESP3D 固件，TCP 端口 8888 |
-| 接线 / Wiring | ESP TX→A8 RX, ESP RX→A8 TX, GND→GND, VCC→3.3V, CH_PD→3.3V |
 | 波特率 / Baud rate | 115200（默认，必须与打印机一致） |
 | 耗材 / Filament | PLA（喷头 200-210°C，热床 60°C） |
 | 供电 / Power | 12V DC |
@@ -99,17 +115,28 @@ These rules are **in addition to** the generic safety rules in `3d-printer`. Bot
 4. **Z axis has two motors.** If one fails, the gantry tilts and the nozzle crashes. Check both motors after any Z issue. / **Z 轴有两个电机。** 如果一个失效，龙门倾斜，喷头撞机。Z 轴异常后检查两个电机。
 5. **PLA only by default.** Do not exceed 210°C hotend / 60°C bed without confirming the printer has an all-metal hotend. / **默认仅限 PLA。** 超过 210°C 喷头 / 60°C 热床前，确认打印机已改装全金属喷头。
 
-## Agent Safety Reminders / Agent 安全提示
+## CRITICAL Safety Reminders / 强制执行的安全规范
 
-When issuing commands via `printer_write.py` for the Anet A8, you must enforce the A8's specific build volume:
-*   X: 0 to 220
-*   Y: 0 to 220
-*   Z: 0 to 380
+When sending movement commands via `printer_write.py`, you MUST strictly follow these rules:
 
-When calling the `move` command, always pass the bounds to the script to prevent mechanical crash:
-```bash
-python3 SKILL_DIR/../scripts/printer_write.py move --x 10 --y 20 --max-x 220 --max-y 220 --max-z 380
-```
+在通过 `printer_write.py` 发送移动指令时，你必须严格遵守以下规则：
+
+1. **ALWAYS pass the bounds / 必须传入边界**：
+   Every time you call `printer_write.py move`, you **MUST** explicitly pass `--max-x 220 --max-y 220 --max-z 380`.
+   每次调用 `move` 时，你**必须**显式传入 `--max-x 220 --max-y 220 --max-z 380`。
+   *Example*: `python3 .../printer_write.py move --x 10 --y 10 --max-x 220 --max-y 220 --max-z 380`
+
+2. **Reject absolute out-of-bounds immediately / 立刻拒绝绝对越界**：
+   Before executing, calculate the target position. If the user asks to move to a position exceeding X:220, Y:220, or Z:380, you **MUST REJECT** the request immediately and inform the user. **DO NOT RUN THE SCRIPT**.
+   在执行前，先计算目标位置。如果用户要求的位置超出了 X:220, Y:220, Z:380，你**必须立刻拒绝**，并告诉用户越界，**绝对禁止运行脚本**。
+
+3. **CRITICAL: Verify relative moves / 极度重要：验证相对移动**：
+   The `--max-x/y/z` arguments in the script only check the *distance* of a relative move, NOT the final absolute position.
+   If you use `--relative` (e.g., "move right 10mm"), you **MUST** first query the current position using `printer_read.py status --json`.
+   Calculate `current_X + relative_X`. If the result exceeds 220 (or Y>220, Z>380), you **MUST REJECT** the relative move.
+   脚本中的 `--max-x/y/z` 参数只检查相对移动的*距离*，不检查最终的绝对位置。
+   如果你使用 `--relative`（例如“向右移动 10mm”），你**必须**先调用 `printer_read.py status --json` 查询当前位置。
+   计算 `当前X + 相对X`。如果结果超过 220（或 Y>220, Z>380），你**必须拒绝**该相对移动。
 
 ## A8 Print Sequence / A8 打印序列
 
@@ -184,6 +211,7 @@ These are in addition to the generic troubleshooting in `3d-printer`.
 
 - 2026-09-16: Initial release / 初始版本
 - 2026-10-24: Split scripts into read/write/print and refactored safety tiers. / 拆分脚本为 read/write/print，重构安全分级。
+- 2026-11-09: Added System Identity block and simplified bounds handling. / 增加系统身份声明并简化边界处理。
 
 ## License / 许可
 
