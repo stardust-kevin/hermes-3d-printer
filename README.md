@@ -113,6 +113,38 @@ python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py heat --hotend 
 python3 ~/.hermes/skills/make/3d-printer/scripts/printer_print.py my_model.gcode
 ```
 
+### Test Cases / 测试话术
+
+Here are the complete test cases covering all supported status queries, control commands, and parametric geometry generation.
+
+**1. Status & System / 状态与系统**
+- `"Query current printer status in JSON."`
+- `"Check the printer's maximum physical bounds."`
+- `"Move the nozzle to X=10 Y=20."`
+
+**2. 2D Shapes (Single Layer) / 二维基础图形（单层）**
+- `"Generate a line from (110,110) to (160,160) and print it."`
+- `"Draw a triangle with side 30mm, solid fill."`
+- `"Generate a rectangle w=40mm, h=20mm."`
+- `"Generate a solid circle with diameter 50mm."`
+- `"Draw a hollow circle with diameter 40mm."`
+- `"Generate a solid ellipse with rx=30, ry=15mm."`
+- `"Draw a regular hexagon with side 40mm, solid fill."`
+- `"Draw a ring with outer diameter 50mm, inner diameter 30mm."`
+
+**3. 3D Shapes / 三维几何体**
+- `"Print a 20x20x20mm cube, 20% infill."`
+- `"Print a cuboid with length 40mm, width 30mm, height 60mm."`
+- `"Print a cylinder with diameter 30mm, height 10mm."`
+- `"Print a pyramid with base 40mm, height 20mm."`
+- `"Print a solid cone with base diameter 40mm, height 30mm."`
+- `"Print an ellipsoid with equator diameter 40mm, pole height 60mm."` (auto support)
+
+**4. Advanced Control / 高级控制**
+- `"Print a sphere with diameter 50mm, no support."`
+- `"Generate a cylinder with diameter 40mm, layer height 0.2, speed 3000."`
+- `"Turn off all heaters."`
+
 ## Safety
 
 **This skill controls physical hardware. Misuse can cause fire or equipment damage.**
@@ -132,6 +164,7 @@ Mandatory rules enforced by the skill:
 ├── SKILL.md                        # Generic layer instructions
 ├── scripts/
 │   ├── printer_comm.py             # Low-level TCP communication & FIFO
+│   ├── printer_draw.py             # Parametric G-code generator
 │   ├── printer_read.py             # Read-only status queries (JSON)
 │   ├── printer_write.py            # Semantic control executor
 │   └── printer_print.py            # G-code file streaming
@@ -268,6 +301,38 @@ python3 ~/.hermes/skills/make/3d-printer/scripts/printer_write.py heat --hotend 
 python3 ~/.hermes/skills/make/3d-printer/scripts/printer_print.py my_model.gcode
 ```
 
+### Test Cases / 测试话术
+
+以下是完整的功能测试话术，涵盖了所有支持的状态查询、运动控制和参数化几何体生成。
+
+**1. 状态与系统**
+- `"查询当前打印机状态，输出 JSON 格式。"`（查温度、坐标、限位）
+- `"查看打印机的最大物理范围。"`（查边界）
+- `"把喷头移动到 X=10 Y=20 的位置。"`（移动轴）
+
+**2. 二维基础图形（单层）**
+- `"生成一条从 (110,110) 到 (160,160) 的直线，然后打印。"`（直线）
+- `"画一个边长为 30mm 的三角形，实心填充。"`（三角形）
+- `"生成一个宽 40mm，高 20mm 的矩形。"`（矩形）
+- `"生成一个直径为 50mm 的单层实心圆。"`（实心圆）
+- `"画一个空心圆，直径 40mm。"`（空心圆）
+- `"生成一个 rx=30, ry=15mm 的单层实心椭圆。"`（实心椭圆）
+- `"画一个边长为 40mm 的正六边形，实心填充。"`（正多边形）
+- `"画一个外径 50mm，内径 30mm 的空心圆环。"`（圆环）
+
+**3. 三维几何体**
+- `"打印一个 20x20x20mm 的正方体，20% 填充。"`（正方体）
+- `"打印一个长 40mm，宽 30mm，高 60mm 的长方体。"`（长方体）
+- `"打印一个直径 30mm，高 10mm 的圆柱体。"`（圆柱体）
+- `"打印一个底面边长 40mm，高 20mm 的金字塔。"`（金字塔）
+- `"打印一个底部直径 40mm，高 30mm 的实心圆锥。"`（圆锥）
+- `"打印一个赤道直径 40mm，两极高度 60mm 的椭球体。"`（椭球体 - 默认自动生成支撑）
+
+**4. 高级控制**
+- `"打印一个直径为 50mm 的球体，不要支撑。"`（强制无支撑）
+- `"生成一个直径为 40mm 的圆柱体，设置层高为 0.2，速度 3000。"`（自定义参数）
+- `"关闭所有加热。"`（关闭加热）
+
 ## 安全须知
 
 **本 skill 控制物理硬件。误用可能导致火灾或设备损坏。**
@@ -287,6 +352,7 @@ Skill 强制执行的安全分级：
 ├── SKILL.md                        # 通用层指令
 ├── scripts/
 │   ├── printer_comm.py             # 底层 TCP 通信与流控
+│   ├── printer_draw.py             # 参数化 G-code 生成器
 │   ├── printer_read.py             # 只读状态查询 (JSON)
 │   ├── printer_write.py            # 语义化控制执行器
 │   └── printer_print.py            # G-code 文件流控打印

@@ -10,7 +10,7 @@ import os
 import printer_comm
 
 class GCodeGenerator:
-    def __init__(self, bed_temp=50, hotend_temp=220, layer_height=0.3, line_width=0.4, speed=1800, travel_speed=3000, infill=20):
+    def __init__(self, bed_temp=50, hotend_temp=220, layer_height=0.3, line_width=0.4, speed=1800, travel_speed=3000, infill=20, support=True):
         self.bed_temp = bed_temp
         self.hotend_temp = hotend_temp
         self.layer_height = layer_height
@@ -18,6 +18,7 @@ class GCodeGenerator:
         self.speed = speed
         self.travel_speed = travel_speed
         self.infill = infill
+        self.support = support
         
         self.filament_area = math.pi * (1.75 / 2) ** 2
         self.e_multiplier = (self.layer_height * self.line_width) / self.filament_area
@@ -37,7 +38,7 @@ class GCodeGenerator:
         self._add("T0")
         self._add(f"M190 S{self.bed_temp:.6f}")
         self._add(";Sliced by printer_draw.py")
-        self._add(f";Basic settings: Layer height: {self.layer_height:.2f} Walls: {self.line_width:.2f} Fill: {self.infill}")
+        self._add(f";Basic settings: Layer height: {self.layer_height:.2f} Walls: {self.line_width:.2f} Fill: {self.infill} Support: {self.support}")
         self._add("G21        ;metric values")
         self._add("G90        ;absolute positioning")
         self._add("M82        ;set extruder to absolute mode")
@@ -152,25 +153,19 @@ class GCodeGenerator:
                 c += spacing
 
     def fill_ellipse(self, cx, cy, rx, ry, density, angle_deg):
-        # Use rotation matrix and quadratic equation to implement diagonal scanline fill for circles/ellipses
+        if rx <= 0 or ry <= 0: return
         spacing = self.line_width * (100.0 / max(density, 1))
         theta = math.radians(angle_deg)
         cos_t = math.cos(theta)
         sin_t = math.sin(theta)
         
-        # Coefficient A for the quadratic equation
         A = (cos_t**2) / (rx**2) + (sin_t**2) / (ry**2)
-        
-        # Maximum extension in the y-axis direction after rotation
         ymax_prime = math.sqrt((rx * sin_t)**2 + (ry * cos_t)**2)
-        
         c_prime = -ymax_prime + spacing / 2.0
         reverse = False
         is_first = True
         
         while c_prime < ymax_prime:
-            # BUG FIX: The order of subtraction in the parentheses was reversed.
-            # It must be (1/ry^2 - 1/rx^2).
             B = 2 * c_prime * sin_t * cos_t * (1/(ry**2) - 1/(rx**2))
             C = (c_prime**2) * ((sin_t**2)/(rx**2) + (cos_t**2)/(ry**2)) - 1
             
@@ -180,7 +175,6 @@ class GCodeGenerator:
                 x1_prime = (-B - dx_prime) / (2 * A)
                 x2_prime = (-B + dx_prime) / (2 * A)
                 
-                # Un-rotate back to the original coordinate system
                 x1 = x1_prime * cos_t - c_prime * sin_t + cx
                 y1 = x1_prime * sin_t + c_prime * cos_t + cy
                 
@@ -192,6 +186,7 @@ class GCodeGenerator:
                 
                 if is_first:
                     self._add(f"G0 F{self.travel_speed} X{x1:.2f} Y{y1:.2f}")
+                    self.curr_x, self.curr_y = x1, y1
                     is_first = False
                 else:
                     self.move_to(x1, y1, extrude=True)
@@ -200,17 +195,132 @@ class GCodeGenerator:
                 reverse = not reverse
             c_prime += spacing
 
+    def fill_polygon(self, pts, density, angle_deg):
+        if density <= 0: return
+        spacing = self.line_width * (100.0 / max(density, 1))
+
+        if angle_deg == 45:
+            c_vals = [p[1] - p[0] for p in pts]
+        else:
+            c_vals = [p[1] + p[0] for p in pts]
+
+        c_min, c_max = min(c_vals), max(c_vals)
+        c = c_min + spacing / 2.0
+        is_first = True
+        prev_end = None
+
+        while c < c_max:
+            intersections = []
+            for i in range(len(pts) - 1):
+                x1, y1 = pts[i]
+                x2, y2 = pts[i+1]
+
+                if angle_deg == 45:
+                    c1, c2 = y1 - x1, y2 - x2
+                else:
+                    c1, c2 = y1 + x1, y2 + x2
+
+                if (c1 <= c and c2 >= c) or (c1 >= c and c2 <= c):
+                    if c1 != c2:
+                        t = (c - c1) / (c2 - c1)
+                        ix = x1 + t * (x2 - x1)
+                        iy = y1 + t * (y2 - y1)
+                        intersections.append((ix, iy))
+
+            unique_pts = []
+            for p in intersections:
+                if not any(math.hypot(p[0]-u[0], p[1]-u[1]) < 0.01 for u in unique_pts):
+                    unique_pts.append(p)
+
+            if len(unique_pts) >= 2:
+                unique_pts.sort()
+                for i in range(0, len(unique_pts), 2):
+                    if i + 1 < len(unique_pts):
+                        p1, p2 = unique_pts[i], unique_pts[i+1]
+
+                        if prev_end is not None:
+                            dist1 = math.hypot(p1[0] - prev_end[0], p1[1] - prev_end[1])
+                            dist2 = math.hypot(p2[0] - prev_end[0], p2[1] - prev_end[1])
+                            if dist2 < dist1:
+                                p1, p2 = p2, p1
+
+                        if is_first:
+                            self._add(f"G0 F{self.travel_speed} X{p1[0]:.2f} Y{p1[1]:.2f}")
+                            self.curr_x, self.curr_y = p1
+                            is_first = False
+                        else:
+                            self.move_to(p1[0], p1[1], extrude=True)
+
+                        self.move_to(p2[0], p2[1], extrude=True)
+                        prev_end = p2
+            c += spacing
+
+    def _draw_continuous_support(self, cx, cy, radius, current_r, angle):
+        """Draw a continuous zigzag support grid for overhangs."""
+        self._add(";TYPE:SUPPORT")
+        gap = 0.4
+        spacing = 2.0
+        max_r = radius
+        cur_r = current_r + gap
+
+        is_first = True
+        reverse = False
+
+        # Scan across the bounding box of the maximum footprint
+        for y in range(int(cy - max_r), int(cy + max_r) + 1, int(spacing)):
+            # Find intersections with the outer bound and inner bound
+            dy = y - cy
+            if abs(dy) > max_r:
+                continue
+
+            dx_outer = math.sqrt(max(0, max_r**2 - dy**2))
+            x_start = cx - dx_outer
+            x_end = cx + dx_outer
+
+            # Now clip the line with the inner circle (current model layer)
+            if abs(dy) < cur_r:
+                dx_inner = math.sqrt(cur_r**2 - dy**2)
+                # If the support line passes through the model, split it
+                # Left segment: x_start to cx - dx_inner
+                # Right segment: cx + dx_inner to x_end
+                segments = [(x_start, cx - dx_inner), (cx + dx_inner, x_end)]
+            else:
+                # Line is entirely outside the model
+                segments = [(x_start, x_end)]
+
+            for seg_start, seg_end in segments:
+                if seg_end - seg_start < spacing:
+                    continue # Skip tiny fragments
+
+                if reverse:
+                    p1, p2 = (seg_end, y), (seg_start, y)
+                else:
+                    p1, p2 = (seg_start, y), (seg_end, y)
+
+                if is_first:
+                    self._add(f"G0 F{self.travel_speed} X{p1[0]:.2f} Y{p1[1]:.2f} Z{self.curr_z:.2f}")
+                    self.curr_x, self.curr_y = p1
+                    is_first = False
+                else:
+                    self.move_to(p1[0], p1[1], extrude=False) # Travel to next support start
+
+                self.move_to(p2[0], p2[1], extrude=True)
+                reverse = not reverse
+
     def generate_2d_shape(self, shape_type, cx, cy, params):
         self.generate_header()
         self._add(";LAYER:0")
         self.curr_z = self.layer_height
-        
+
         if shape_type == "triangle":
             size = params.get("size", 20)
             h = size * math.sqrt(3) / 2
             pts = [(cx, cy + h/2), (cx - size/2, cy - h/2), (cx + size/2, cy - h/2), (cx, cy + h/2)]
             self._add(";TYPE:WALL-OUTER")
             self.draw_polygon(pts)
+            if self.infill > 0:
+                self._add(";TYPE:FILL")
+                self.fill_polygon(pts, self.infill, 45)
         elif shape_type == "rectangle":
             w, h = params.get("w", 20), params.get("h", 10)
             pts = [(cx-w/2, cy-h/2), (cx+w/2, cy-h/2), (cx+w/2, cy+h/2), (cx-w/2, cy+h/2), (cx-w/2, cy-h/2)]
@@ -231,7 +341,35 @@ class GCodeGenerator:
             if self.infill > 0:
                 self._add(";TYPE:FILL")
                 self.fill_ellipse(cx, cy, rx - (self.line_width/2.0), ry - (self.line_width/2.0), self.infill, 45)
+        elif shape_type == "polygon":
+            sides = params.get("sides", 6)
+            r = params.get("size", 20) / 2.0
+            pts = []
+            for i in range(sides + 1):
+                angle = (2 * math.pi * (i % sides)) / sides
+                pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+            self._add(";TYPE:WALL-OUTER")
+            self.draw_polygon(pts)
+            if self.infill > 0:
+                self._add(";TYPE:FILL")
+                self.fill_polygon(pts, self.infill, 45)
+        elif shape_type == "ring":
+            r_out = params.get("diameter", 40) / 2.0
+            r_in = params.get("inner_diameter", 20) / 2.0
+            pts_out = []
+            for i in range(65):
+                angle = (2 * math.pi * i) / 64
+                pts_out.append((cx + r_out * math.cos(angle), cy + r_out * math.sin(angle)))
+            self._add(";TYPE:WALL-OUTER")
+            self.draw_polygon(pts_out)
             
+            pts_in = []
+            for i in range(65):
+                angle = (-2 * math.pi * i) / 64
+                pts_in.append((cx + r_in * math.cos(angle), cy + r_in * math.sin(angle)))
+            self._add(";TYPE:WALL-INNER")
+            self.draw_polygon(pts_in)
+
         self.generate_footer()
 
     def generate_3d_shape(self, shape_type, cx, cy, params):
@@ -262,9 +400,19 @@ class GCodeGenerator:
                 self._add(";TYPE:FILL")
                 self.fill_rect(cx, cy, w, h, current_density, angle)
 
+            elif shape_type == "cuboid":
+                w = params.get("w", 20)
+                d = params.get("d", 20)
+                pts = [(cx-w/2, cy-d/2), (cx+w/2, cy-d/2), (cx+w/2, cy+d/2), (cx-w/2, cy+d/2), (cx-w/2, cy-d/2)]
+                self._add(";TYPE:WALL-OUTER")
+                self.draw_polygon(pts)
+                self._add(";TYPE:FILL")
+                self.fill_rect(cx, cy, w, d, current_density, angle)
+
             elif shape_type == "pyramid":
                 current_size = size * (1 - (layer / max(layers, 1)))
                 w, h = current_size, current_size
+                if w <= 0 or h <= 0: break
                 pts = [(cx-w/2, cy-h/2), (cx+w/2, cy-h/2), (cx+w/2, cy+h/2), (cx-w/2, cy+h/2), (cx-w/2, cy-h/2)]
                 self._add(";TYPE:WALL-OUTER")
                 self.draw_polygon(pts)
@@ -287,6 +435,10 @@ class GCodeGenerator:
                 z_offset = z - radius
                 if abs(z_offset) < radius:
                     current_r = math.sqrt(radius**2 - z_offset**2)
+
+                    if self.support and z < radius:
+                        self._draw_continuous_support(cx, cy, radius, current_r, angle)
+
                     pts = []
                     for i in range(65):
                         a = (2 * math.pi * i) / 64
@@ -298,23 +450,69 @@ class GCodeGenerator:
                     if fill_r > 0:
                         self.fill_ellipse(cx, cy, fill_r, fill_r, current_density, angle)
 
+            elif shape_type == "cone":
+                radius = diameter / 2.0
+                current_r = radius * (1 - (layer / max(layers, 1)))
+                if current_r <= 0: break
+                pts = []
+                for i in range(65):
+                    a = (2 * math.pi * i) / 64
+                    pts.append((cx + current_r * math.cos(a), cy + current_r * math.sin(a)))
+                self._add(";TYPE:WALL-OUTER")
+                self.draw_polygon(pts)
+                self._add(";TYPE:FILL")
+                fill_r = max(0, current_r - (self.line_width/2.0))
+                if fill_r > 0:
+                    self.fill_ellipse(cx, cy, fill_r, fill_r, current_density, angle)
+
+            elif shape_type == "ellipsoid":
+                rx = diameter / 2.0
+                ry = rx
+                rz = height / 2.0
+                z_offset = z - rz
+                if abs(z_offset) < rz:
+                    current_rx = rx * math.sqrt(1 - (z_offset/rz)**2)
+                    current_ry = ry * math.sqrt(1 - (z_offset/rz)**2)
+
+                    if self.support and z < rz:
+                        self._draw_continuous_support(cx, cy, rx, current_rx, angle)
+
+                    pts = []
+                    for i in range(65):
+                        a = (2 * math.pi * i) / 64
+                        pts.append((cx + current_rx * math.cos(a), cy + current_ry * math.sin(a)))
+                    self._add(";TYPE:WALL-OUTER")
+                    self.draw_polygon(pts)
+                    self._add(";TYPE:FILL")
+                    fill_rx = max(0, current_rx - (self.line_width/2.0))
+                    fill_ry = max(0, current_ry - (self.line_width/2.0))
+                    if fill_rx > 0 and fill_ry > 0:
+                        self.fill_ellipse(cx, cy, fill_rx, fill_ry, current_density, angle)
+
         self.generate_footer()
 
 def main():
     parser = argparse.ArgumentParser(description="Generate geometric G-code")
-    parser.add_argument("shape", choices=["line", "triangle", "rectangle", "circle", "ellipse", "cube", "cylinder", "pyramid", "sphere"], help="Shape type")
+    parser.add_argument("shape", choices=[
+        "line", "triangle", "rectangle", "circle", "ellipse", "polygon", "ring",
+        "cube", "cuboid", "cylinder", "pyramid", "sphere", "cone", "ellipsoid"
+    ], help="Shape type")
     parser.add_argument("-o", "--output", default="output.gcode", help="Output file")
     parser.add_argument("--layer", type=float, default=0.3, help="Layer height (mm)")
     parser.add_argument("--speed", type=int, default=1800, help="Print speed (mm/min)")
-    parser.add_argument("--size", type=float, default=20.0, help="Base size for triangle/cube/pyramid")
-    parser.add_argument("--w", type=float, default=20.0, help="Rectangle width")
+    parser.add_argument("--size", type=float, default=20.0, help="Base size for triangle/cube/pyramid/polygon")
+    parser.add_argument("--sides", type=int, default=6, help="Number of sides for polygon")
+    parser.add_argument("--w", type=float, default=20.0, help="Rectangle/Cuboid width")
+    parser.add_argument("--d", type=float, default=20.0, help="Cuboid depth")
     parser.add_argument("--h", type=float, default=10.0, help="Rectangle height")
-    parser.add_argument("--diameter", type=float, default=40.0, help="Diameter for circle/cylinder/sphere")
+    parser.add_argument("--diameter", type=float, default=40.0, help="Diameter for circle/cylinder/sphere/ring/cone/ellipsoid")
+    parser.add_argument("--inner_diameter", type=float, default=20.0, help="Inner diameter for ring")
     parser.add_argument("--rx", type=float, default=20.0, help="Ellipse radius X")
     parser.add_argument("--ry", type=float, default=10.0, help="Ellipse radius Y")
     parser.add_argument("--height", type=float, default=5.0, help="Height for 3D shapes")
     parser.add_argument("--infill", type=int, default=20, help="Infill density (0-100)")
     parser.add_argument("--hollow", action="store_true", help="Draw hollow shape (infill 0)")
+    parser.add_argument("--no-support", action="store_false", dest="support", help="Disable automatic supports")
     
     max_x = float(os.environ.get("PRINTER_MAX_X", 220.0))
     max_y = float(os.environ.get("PRINTER_MAX_Y", 220.0))
@@ -331,7 +529,7 @@ def main():
     if args.hollow:
         args.infill = 0
 
-    gen = GCodeGenerator(layer_height=args.layer, speed=args.speed, infill=args.infill)
+    gen = GCodeGenerator(layer_height=args.layer, speed=args.speed, infill=args.infill, support=args.support)
     
     params = vars(args)
     
@@ -345,7 +543,7 @@ def main():
         y2 = args.y2 if args.y2 is not None else args.cy + 50
         gen.draw_polygon([(x1, y1), (x2, y2)])
         gen.generate_footer()
-    elif args.shape in ("triangle", "rectangle", "circle", "ellipse"):
+    elif args.shape in ("triangle", "rectangle", "circle", "ellipse", "polygon", "ring"):
         gen.generate_2d_shape(args.shape, args.cx, args.cy, params)
     else:
         gen.generate_3d_shape(args.shape, args.cx, args.cy, params)
