@@ -1,7 +1,7 @@
 ---
 name: 3d-printer
 description: "Generic 3D printer control via G-code over TCP/serial. Query status, send commands, manage prints. 通用 3D 打印机控制，通过 G-code 通信，支持状态查询、命令发送和打印管理。"
-version: 1.4.1
+version: 1.7.0
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -36,10 +36,10 @@ You must follow this tiered safety system to prevent hardware damage or fire.
 
 你必须遵守以下安全分级以防火防灾：
 
-### 🔴 Level 2: High Risk (Requires User Clarification)
-You **MUST** use the `Clarify` tool to get explicit user confirmation before executing these actions:
+### 🔴 Level 2: High Risk (Requires User Clarification ONCE)
+You **MUST** use the `Clarify` tool to get explicit user confirmation before executing these actions **ONCE per user request**. Do NOT loop the confirmation.
 *   **Heating**: Any `heat` command (hotend or bed).
-*   **Printing**: Starting `printer_print.py`.
+*   **Printing**: Starting `printer_print.py`. (Printing is high-risk).
 *   **EEPROM/Factory Reset**: `passthrough "M500"` or `passthrough "M502"`.
 
 ### 🟡 Level 1: Medium Risk (Script Enforced)
@@ -49,89 +49,135 @@ You **MUST** use the `Clarify` tool to get explicit user confirmation before exe
 *   **All Queries**: `printer_read.py status`, `info`, `progress`, `bounds`.
 *   **Movement**: `move`. The script enforces `--max-x`, `--max-y`, `--max-z` bounds automatically from `.env`.
 *   **Stopping**: `cool` (turn off heaters), `estop` (M112).
+*   **Generating G-code**: Running `printer_draw.py` is safe, as it only creates a file on the disk.
 
 ## Helper Scripts / 辅助脚本
 
-**CRITICAL RULES**:
-1.  You MUST use the absolute path `/opt/data/skills/make/3d-printer/scripts/` when running these scripts. Do NOT use relative paths.
-2.  **NEVER execute raw G-code (like G28, M104, G1) directly in the Terminal shell.** The Terminal only runs Python scripts. You MUST use the provided Python scripts to send G-code to the printer. If you want to send a raw G-code, use the `passthrough` command.
+**ABSOLUTE CRITICAL RULES**:
+1.  **NEVER invent scripts.** You are strictly limited to the scripts documented below (`printer_read.py`, `printer_write.py`, `printer_draw.py`, `printer_print.py`). DO NOT attempt to run `printer_heat.py` or any other hallucinated script.
+2.  **NEVER write G-code manually.** You are strictly forbidden from using `passthrough` to send raw movement commands (like `G1 X... Y...`).
+3.  **DRAWING REQUIRES EXTRUSION AND HEATING / 绘图必须使用 draw 脚本**:
+    You MUST NEVER use `printer_write.py move` to draw lines or shapes. If the user asks to "draw a line", "print a square", or "draw a shape", you MUST use `printer_draw.py` to generate the G-code, and then `printer_print.py` to print it.
+    你**绝对禁止**使用 `printer_write.py move` 来画线或画图形。如果用户要求画图，你**必须**使用 `printer_draw.py` 生成 G-code，然后再用 `printer_print.py` 打印。
+4.  **NEVER execute raw G-code directly in the Terminal shell.**
+5.  You MUST use the absolute path `/opt/data/skills/make/3d-printer/scripts/`.
 
-**极重要规则**：
-1. 运行脚本时必须使用绝对路径 `/opt/data/skills/make/3d-printer/scripts/`，禁止使用相对路径。
-2. **绝对禁止在 Terminal 中直接执行原始 G-code（如 G28、M104、G1）**。Terminal 只能执行 Python 脚本。你必须通过提供的 Python 脚本来发送指令。如果你想发送原始 G-code，请使用 `passthrough` 命令。
+**绝对核心规则**：
+1. **绝对禁止捏造脚本**。你只能使用下方文档中提供的脚本。**绝对禁止**尝试运行 `printer_heat.py` 等任何捏造的脚本。
+2. **绝对禁止手写 G-code**。严禁使用 `passthrough` 发送原始移动指令。
+3. **绘图必须使用 draw 脚本**。绝对禁止用 `move` 画图。
+4. **绝对禁止在 Terminal 中直接执行原始 G-code**。
+5. 运行脚本时必须使用绝对路径 `/opt/data/skills/make/3d-printer/scripts/`。
 
 ### 1. Status Read / 状态查询
 ```bash
-# Query full status (temperature, position, endstops)
 python3 /opt/data/skills/make/3d-printer/scripts/printer_read.py status --json
-
-# Query bounds (read from .env)
 python3 /opt/data/skills/make/3d-printer/scripts/printer_read.py bounds --json
 ```
 
-### 2. Motion & Control / 运动与控制
-```bash
-# Note: Do NOT pass --max-x/y/z manually. The script handles bounds internally.
-# Home axes:
-python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py home
+### 2. Temperature Control / 温度控制 (Heating)
+If the user asks to heat the printer, you MUST use `printer_write.py heat`.
+如果用户要求加热，你**必须**使用 `printer_write.py heat`。
 
-# Move axes:
+```bash
+python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py heat --hotend 200 --bed 60
+```
+
+### 3. Generate Basic Geometry / 生成基础几何体 G-code
+When the user asks to draw or print ANY shape, you MUST use `printer_draw.py`. DO NOT calculate coordinates manually. DO NOT piece together multiple `line` commands. The script natively supports ALL shapes below.
+
+当用户要求画图或打印任何形状时，你**必须**使用 `printer_draw.py`。**绝对禁止**自己计算坐标，**绝对禁止**用多个 `line` 拼凑图形。脚本原生支持以下所有形状：
+
+**Supported Shapes & Parameters / 支持的形状与参数:**
+- `line`: `--x1 110 --y1 110 --x2 160 --y2 160`
+- `triangle` (equilateral): `--size 30`
+- `rectangle`: `--w 40 --h 20`
+- `circle`: `--diameter 50`
+- `ellipse`: `--rx 30 --ry 10`
+- `cube` (3D): `--size 20 --height 10 --infill 20`
+- `cylinder` (3D): `--diameter 30 --height 15`
+- `pyramid` (3D): `--size 40 --height 20`
+- `sphere` (3D): `--diameter 40`
+
+**Intent Mapping / 意图映射:**
+- If the user requests a **"hollow" (空心)** or **"shell"** or **"outline only"** shape, you MUST pass the `--hollow` flag.
+- 如果用户要求画**“空心”**或**“仅轮廓”**的图形，你**必须**使用 `--hollow` 参数。
+- If the user requests a **"solid" (实心)** shape, you MUST pass `--infill 100`.
+- 如果用户要求画**“实心”**图形，你**必须**传入 `--infill 100`。
+- If the user specifies a custom infill percentage (e.g., "50% infill"), pass `--infill 50`.
+- 如果用户指定了自定义填充率（如“50% 填充”），传入 `--infill 50`。
+
+**Examples / 示例**:
+```bash
+# Generate a triangle (size 30)
+python3 /opt/data/skills/make/3d-printer/scripts/printer_draw.py triangle --size 30 -o /tmp/triangle.gcode
+
+# Generate a solid ellipse
+python3 /opt/data/skills/make/3d-printer/scripts/printer_draw.py ellipse --rx 30 --ry 10 --infill 100 -o /tmp/ellipse.gcode
+
+# Generate a hollow circle
+python3 /opt/data/skills/make/3d-printer/scripts/printer_draw.py circle --diameter 50 --hollow -o /tmp/hollow_circle.gcode
+```
+
+### 4. Motion Control / 运动控制 (For positioning only)
+**WARNING**: Do NOT use `move` for drawing. Use it only to reposition the nozzle without extruding.
+**警告**：**绝对禁止**用 `move` 来画图。只能用于不挤出的空驶移动。
+
+```bash
 python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py move --x 10 --y 10 --f 3000
 ```
 
-### 3. Print File / 打印文件
+### 5. Print File / 打印文件
+**IMPORTANT: USE Terminal / 重要：必须使用 Terminal 工具**
+You MUST use the `Terminal` tool to execute the print command. DO NOT use `execute_code`. DO NOT write Python code like `import subprocess`.
+
+你**必须**使用 `Terminal` 工具执行打印。**绝对禁止**使用 `execute_code`，**绝对禁止**自己写 `import subprocess` 这种多行 Python 代码。
+
+**CRITICAL WARNING / 极度警告**:
+You MUST output a pure single-line bash command. NEVER include any special tokens (like `<|"|>`, `<tool_call|>`) in your command. Just run the script directly.
+你**必须**输出纯粹的单行 bash 命令。**绝对禁止**在命令中包含任何特殊 Token（如 `<|"|>`、`<tool_call|>` 等）。直接运行脚本即可。
+
+**Example / 示例**:
+If you need to print `/tmp/hollow_circle.gcode`, use the `Terminal` tool with this exact command:
+如果你需要打印 `/tmp/hollow_circle.gcode`，请在 `Terminal` 工具中执行以下这一行命令：
+
 ```bash
-python3 /opt/data/skills/make/3d-printer/scripts/printer_print.py /path/to/benchy.gcode
+python3 /opt/data/skills/make/3d-printer/scripts/printer_print.py /tmp/hollow_circle.gcode
 ```
 
-## Environment Variables / 环境变量配置
+**CRITICAL: PRINTING WORKFLOW / 极度重要：打印工作流**
+1. **Ask once / 只问一次**: Ask the user for confirmation **BEFORE** running the print script.
+2. **Execute / 执行**: Once confirmed, generate the G-code (if needed) and run the print script.
+3. **Finish and STOP / 结束并停止**: Once the print script returns `SUCCESS: All G-code sent successfully`, the job is DONE. **You MUST immediately stop and report to the user. DO NOT ask for confirmation again. DO NOT trigger the print workflow twice.**
+一旦打印脚本返回 `SUCCESS: All G-code sent successfully`，任务就结束了。你**必须立刻停止**并汇报。**绝对禁止**再次询问用户确认，**绝对禁止**重复触发打印流程！
 
-The skill reads connection and safety boundaries from the local `.env` file in the skill root directory:
-*   `PRINTER_HOST` / `PRINTER_PORT`: Printer network address.
-*   `PRINTER_MAX_X`, `PRINTER_MAX_Y`, `PRINTER_MAX_Z`: The physical build volume.
+**IMPORTANT: Open-Loop Printing / 重要：开环打印认知**
+The `printer_print.py` script uses open-loop control. It will exit as soon as all G-code is successfully buffered by the printer. When it returns `SUCCESS: All G-code sent successfully`, the script's job is done, and the physical printer is executing the movements on its own.
 
-技能从根目录下的 `.env` 读取连接和安全边界配置。
+`printer_print.py` 脚本采用开环控制。一旦所有的 G-code 成功发送给打印机，它就会立刻退出。当终端返回 `SUCCESS: All G-code sent successfully` 时，代表脚本的任务已结束，物理打印机正在自行执行这些动作。
+
+**CRITICAL / 极度重要**:
+You **MUST NOT** report "打印物理完成 (Print physically finished)". Instead, you must tell the user: "G-code 文件已成功发送，打印机正在后台物理打印中 (G-code sent successfully, printer is now printing)."
+你**绝对禁止**向用户报告“打印物理完成”。你必须告诉用户：“**G-code 文件已成功发送，打印机正在后台物理打印中**”。
+
+**NEVER RETRY AUTOMATICALLY / 绝对禁止自动重试**:
+If the print command fails or times out, you MUST STOP and report the error. DO NOT attempt to run the print script again automatically.
+如果打印命令失败或超时，你**必须立刻停止**并报告错误。**绝对禁止**自动重新运行打印脚本。
 
 ## Unknown Printer Safety / 未知机型安全防范
 
-**CRITICAL RULE**: Before executing any `move` command, you MUST know the physical build volume limits. Always follow this strict priority order:
+**CRITICAL RULE**: Before executing any `move` command, you MUST know the physical build volume limits.
+**极重要规则**：在执行任何 `move` 指令前，你必须先知道物理打印范围限制。
 
-**极重要规则**：在执行任何 `move` 指令前，你必须先知道物理打印范围限制。请始终遵循以下严格的优先级顺序：
-
-1. **Read from Environment / 优先读取环境变量**：
-   Check if `PRINTER_MAX_X`, `PRINTER_MAX_Y`, and `PRINTER_MAX_Z` are defined in the environment or the local `.env` file. If they are present, **use them immediately**. DO NOT ask the user for dimensions if environment variables are set.
-   检查环境变量或本地 `.env` 文件中是否定义了 `PRINTER_MAX_X` 等参数。如果有，**立刻使用它们**。**如果环境变量已设置，绝对禁止弹窗询问用户尺寸。**
-
-2. **Check Loaded Skills / 检查已加载的技能**：
-   If environment variables are missing, check your loaded context (e.g., the `anet-a8` skill) for the build volume.
-   如果环境变量缺失，检查你已加载的上下文（例如 `anet-a8` 技能）中的打印范围。
-
-3. **Ask the User (Fail-Fast) / 询问用户（快速失败）**：
-   ONLY IF you cannot find the dimensions in the environment OR in your loaded skills, use the `Clarify` tool to ask the user for the maximum X, Y, Z build volume.
-   **只有**在环境变量和已加载技能中都找不到尺寸时，才使用 `Clarify` 工具询问用户最大 X、Y、Z 打印范围。
-
-**How to check bounds / 如何查询边界**:
-If the user asks for the maximum build volume, you MUST run `python3 /opt/data/skills/make/3d-printer/scripts/printer_read.py bounds --json` to get the exact values from the environment. DO NOT answer from memory.
-
-**如何查询边界**：
-如果用户询问最大打印范围，你**必须**运行 `printer_read.py bounds --json` 来从环境中获取精确值。**绝对禁止**凭记忆回答。
-
-## Connection Handling / 连接处理规则
-
-1. **Trust the Scripts / 信任脚本**: The Python scripts automatically read the `PRINTER_HOST` and `PRINTER_PORT` from the environment. You do NOT need to explicitly pass `--host` or `--port` unless the user specifically asks you to connect to a different printer.
-2. **Ignore Shell Echo / 忽略 Shell 回显**: Do NOT use `echo $PRINTER_HOST` to verify the environment. Shell sessions may not inherit the environment variables, but the Python scripts WILL read them correctly.
-3. **Handling Connection Errors / 处理连接失败**: If a script returns a `ConnectionError`, use the `Clarify` tool to ask the user for the correct IP/Port, and then use `--host` and `--port` for that specific session.
+1. **Read from Environment / 优先读取环境变量**: Check `.env`.
+2. **Ask the User / 询问用户**: ONLY IF missing from `.env`, use `Clarify` to ask for maximum X, Y, Z.
 
 ## Troubleshooting Rules / 异常处理铁律
 
+**NO SPECIAL TOKENS IN TERMINAL / 绝对禁止在终端输出特殊标签**:
+When using the `Terminal` tool, you MUST output pure bash commands. NEVER include internal LLM tags or special tokens (like `<|"|>`, `<tool_call|>`, `<tool_response>`). If you include them, the shell will crash.
+在使用 `Terminal` 工具时，你**必须**输出纯粹的 bash 命令。**绝对禁止**在命令中包含任何内部模型标签、XML 标签或特殊 Token。
+
 **NEVER LOOP ON ERRORS / 绝对禁止报错死循环**:
-If a script returns an error (especially containing "halted" or "error"), you MUST STOP immediately. Do NOT ask the user for confirmation again. Report the exact error to the user and wait for their instruction. If the printer is in a `halted` state, you must suggest the user to run `python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py passthrough "M999"` to reset it.
-如果脚本返回错误（特别是包含 "halted" 或 "error"），你必须立刻停止。**绝对禁止**再次向用户弹窗确认。原样向用户报告错误并等待指示。如果打印机处于 `halted`（挂起）状态，你必须建议用户运行 `passthrough "M999"` 来复位打印机。
-
-If a `Terminal` tool call returns an error, you MUST report the EXACT raw error output to the user.
-DO NOT guess or invent environmental issues (like "Docker daemon down", "files missing", or "network disconnected").
-Just show the raw error message and ask the user to check it.
-
-如果 `Terminal` 工具调用返回错误，你**必须**将终端的原始报错信息原样回复给用户。
-**绝对禁止**自己脑补、猜测系统环境崩溃、文件丢失或网络断开。
-只需展示原始错误信息，并请用户检查。
+If a script returns an error, you MUST STOP immediately. Do NOT ask the user for confirmation again. Report the exact error to the user and wait for their instruction. If the printer is in a `halted` state, suggest running `passthrough "M999"`.
+如果脚本返回错误，你必须立刻停止。**绝对禁止**再次向用户弹窗确认。原样向用户报告错误并等待指示。

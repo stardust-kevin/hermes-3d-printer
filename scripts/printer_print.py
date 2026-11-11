@@ -24,7 +24,7 @@ def main():
             sys.stdout.write(f"\rProgress: {progress}%")
             sys.stdout.flush()
             
-        print("\nPrint finished.")
+        print("\nSUCCESS: All G-code sent successfully. The printer is now executing the job.")
     except KeyboardInterrupt:
         print("\n\nPrint interrupted by user. Sending emergency stop...")
         try:

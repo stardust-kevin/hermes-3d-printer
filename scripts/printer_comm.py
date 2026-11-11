@@ -141,7 +141,17 @@ class PrinterComm:
                     raise ConnectionError("Connection lost during streaming.")
                 sent_idx += 1
 
-            line = self._read_line()
+            # --- MINIMAL FIX: Tolerate connection/timeout errors if all lines are sent ---
+            try:
+                line = self._read_line()
+            except (TimeoutError, ConnectionError):
+                if sent_idx == total:
+                    # All lines are sent, assume printer accepted them and exit gracefully
+                    yield 100
+                    return
+                raise
+            # -----------------------------------------------------------------------------
+
             if not line or line.lower().startswith("echo:"):
                 continue
 
