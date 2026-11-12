@@ -24,10 +24,11 @@ A Hermes Agent skill for controlling 3D printers via G-code over TCP/serial. Inc
 
 - **Generic layer** (`3d-printer`) — works with any Marlin/RepRap-style printer over TCP or serial
 - **Child skills** — printer-specific parameters overlay the generic layer (currently `anet-a8`)
-- **Pure Python 3 stdlib** — no external dependencies, no `pip install` required
+- **Pure Python 3 stdlib** — no external dependencies, no `pip install` required for core operation
 - **Bilingual** — English and Chinese output via `PRINTER_LANG`
 - **Tiered Safety** — strict user confirmation for high-risk actions (heating/printing), while script-level checks prevent physical crashes (cold extrusion, out-of-bounds moves)
 - **FIFO Streaming** — built-in flow control to print large G-code files without overflowing the MCU buffer
+- **Parametric Geometry** — native generation of 1D, 2D, and 3D shapes with smart support
 
 ## Supported Printers
 
@@ -145,6 +146,42 @@ Here are the complete test cases covering all supported status queries, control 
 - `"Generate a cylinder with diameter 40mm, layer height 0.2, speed 3000."`
 - `"Turn off all heaters."`
 
+### Mock Camera Testing / 摄像头模拟测试
+
+If you want to test the visual loop / camera streaming features (e.g., `tests/mock_camera.py`), you need to set up a virtual environment with WebRTC and OpenCV dependencies.
+
+如果你需要测试视觉闭环/摄像头流媒体功能（如 `tests/mock_camera.py`），你需要配置包含 WebRTC 和 OpenCV 的虚拟环境。
+
+**Using `uv` (Recommended, extremely fast):**
+```bash
+# 1. Create and activate virtual environment
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# 2. Install dependencies
+uv pip install aiortc opencv-python websockets
+
+# 3. Export to requirements.txt for non-uv users
+uv pip freeze > requirements.txt
+
+# 4. (Optional) Initialize project and sync
+uv init
+uv sync
+```
+
+**Using standard `pip`:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install aiortc opencv-python websockets
+pip freeze > requirements.txt
+```
+
+**Run the Mock Camera:**
+```bash
+python3 tests/mock_camera.py
+```
+
 ## Safety
 
 **This skill controls physical hardware. Misuse can cause fire or equipment damage.**
@@ -171,6 +208,9 @@ Mandatory rules enforced by the skill:
 ├── references/
 │   ├── gcode-universal.md          # Universal G-code reference
 │   └── troubleshooting.md          # Universal error handling
+├── tests/
+│   ├── mock_printer.py             # Mock TCP printer server
+│   └── mock_camera.py              # Mock camera streaming server
 └── anet-a8/
     ├── SKILL.md                    # Anet A8 specific parameters
     └── references/
@@ -212,10 +252,11 @@ Contributions welcome. To add a new printer:
 
 - **通用层**（`3d-printer`）——适用于任何 Marlin/RepRap 风格打印机，支持 TCP 或串口
 - **子 skill**——打印机专属参数叠加在通用层之上（当前支持 `anet-a8`）
-- **纯 Python 3 标准库**——无外部依赖，无需 `pip install`
+- **纯 Python 3 标准库**——核心控制无外部依赖，无需 `pip install`
 - **中英双语**——通过 `PRINTER_LANG` 切换输出语言
 - **分级安全机制**——高危操作（加热/打印）强制要求用户确认，而底层脚本会进行物理保护（防冷挤出、防越界撞机）
 - **FIFO 流控**——内置滑动窗口流控，打印大型 G-code 文件不会撑爆主板缓存
+- **参数化几何**——原生生成 1D、2D、3D 图形，并支持智能支撑
 
 ## 支持的打印机
 
@@ -333,6 +374,40 @@ python3 ~/.hermes/skills/make/3d-printer/scripts/printer_print.py my_model.gcode
 - `"生成一个直径为 40mm 的圆柱体，设置层高为 0.2，速度 3000。"`（自定义参数）
 - `"关闭所有加热。"`（关闭加热）
 
+### 摄像头模拟测试 (Mock Camera Testing)
+
+如果你需要测试视觉闭环/摄像头流媒体功能（如 `tests/mock_camera.py`），你需要配置包含 WebRTC 和 OpenCV 的虚拟环境。
+
+**推荐使用 `uv`（极速包管理器）:**
+```bash
+# 1. 创建并激活虚拟环境
+uv venv
+source .venv/bin/activate  # Windows 用户使用: .venv\Scripts\activate
+
+# 2. 安装依赖
+uv pip install aiortc opencv-python websockets
+
+# 3. 导出 requirements.txt 给非 uv 用户使用
+uv pip freeze > requirements.txt
+
+# 4. (可选) 初始化项目并同步
+uv init
+uv sync
+```
+
+**使用标准 `pip`:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install aiortc opencv-python websockets
+pip freeze > requirements.txt
+```
+
+**运行模拟摄像头:**
+```bash
+python3 tests/mock_camera.py
+```
+
 ## 安全须知
 
 **本 skill 控制物理硬件。误用可能导致火灾或设备损坏。**
@@ -359,6 +434,9 @@ Skill 强制执行的安全分级：
 ├── references/
 │   ├── gcode-universal.md          # 通用 G-code 参考
 │   └── troubleshooting.md          # 通用异常处理
+├── tests/
+│   ├── mock_printer.py             # 模拟 TCP 打印机服务器
+│   └── mock_camera.py              # 模拟摄像头流媒体服务器
 └── anet-a8/
     ├── SKILL.md                    # 爱能特 A8 专属参数
     └── references/
