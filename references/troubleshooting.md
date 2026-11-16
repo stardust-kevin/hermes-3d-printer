@@ -41,7 +41,7 @@ ERROR: PRINTER_HOST 未设置。请添加到 ~/.hermes/.env
 echo $PRINTER_HOST
 
 # Set it / 设置
-echo 'PRINTER_HOST=192.168.1.100' >> ~/.hermes/.env
+echo 'PRINTER_HOST=127.0.0.1' >> ~/.hermes/.env
 echo 'PRINTER_PORT=8888' >> ~/.hermes/.env
 
 # Reload / 重新加载

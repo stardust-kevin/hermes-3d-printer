@@ -52,6 +52,8 @@ A Hermes Agent skill for controlling 3D printers via G-code over TCP/serial. Inc
 ```bash
 git clone https://github.com/stardust-kevin/hermes-3d-printer.git \
   ~/.hermes/skills/make/3d-printer
+cd ~/.hermes/skills/make/3d-printer
+cp .env.example .env
 ```
 
 ### Option 2: Symlink from an existing checkout
@@ -74,11 +76,11 @@ Add to `${HERMES_HOME:-~/.hermes}/.env`:
 
 ```bash
 # Generic layer
-PRINTER_HOST=192.168.1.100
+PRINTER_HOST=127.0.0.1
 PRINTER_PORT=8888
 
 # Anet A8 child skill (overrides PRINTER_HOST)
-A8_ESP3D_HOST=192.168.1.100
+A8_ESP3D_HOST=127.0.0.1
 A8_ESP3D_PORT=8888
 
 # Optional
@@ -280,6 +282,8 @@ Contributions welcome. To add a new printer:
 ```bash
 git clone https://github.com/stardust-kevin/hermes-3d-printer.git \
   ~/.hermes/skills/make/3d-printer
+cd ~/.hermes/skills/make/3d-printer
+cp .env.example .env
 ```
 
 ### 方式二：从已有检出创建软链接
@@ -302,11 +306,11 @@ hermes skills list | grep -E "3d-printer|anet"
 
 ```bash
 # 通用层
-PRINTER_HOST=192.168.1.100
+PRINTER_HOST=127.0.0.1
 PRINTER_PORT=8888
 
 # 爱能特 A8 子 skill（覆盖 PRINTER_HOST）
-A8_ESP3D_HOST=192.168.1.100
+A8_ESP3D_HOST=127.0.0.1
 A8_ESP3D_PORT=8888
 
 # 可选
