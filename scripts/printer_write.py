@@ -80,13 +80,13 @@ def main():
 
             if args.relative:
                 comm.send_command("G91")
-            
+
             g1 = f"G1 F{args.f}"
             if args.x is not None: g1 += f" X{args.x}"
             if args.y is not None: g1 += f" Y{args.y}"
             if args.z is not None: g1 += f" Z{args.z}"
             comm.send_command(g1)
-            
+
             if args.relative:
                 comm.send_command("G90")
             print("ok")

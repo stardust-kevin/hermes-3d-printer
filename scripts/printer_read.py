@@ -20,18 +20,18 @@ def main():
     try:
         comm = PrinterComm(host=args.host, port=args.port)
         comm.connect()
-        
+
         if args.action == "status":
             _, t_lines = comm.send_command("M105")
             _, p_lines = comm.send_command("M114")
             _, e_lines = comm.send_command("M119")
-            
+
             data = {
                 "temperature": comm.parse_m105(t_lines),
                 "position": comm.parse_m114(p_lines),
                 "endstops": comm.parse_m119(e_lines)
             }
-            
+
             if args.json:
                 print(json.dumps(data, indent=2))
             else:

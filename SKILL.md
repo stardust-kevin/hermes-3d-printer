@@ -1,7 +1,7 @@
 ---
 name: 3d-printer
 description: "Generic 3D printer control via G-code over TCP/serial. Query status, send commands, manage prints. 通用 3D 打印机控制，通过 G-code 通信，支持状态查询、命令发送和打印管理。"
-version: 1.7.7
+version: 1.7.8
 author: kevin
 license: MIT
 date: 2026-09-16
@@ -66,10 +66,10 @@ You **MUST** use the `Clarify` tool to get explicit user confirmation before exe
 6.  You MUST use the absolute path `/opt/data/skills/make/3d-printer/scripts/`.
 
 **绝对核心规则**：
-1. **绝对禁止捏造脚本**。你只能使用下方文档中提供的脚本。**绝对禁止**尝试运行 `printer_heat.py` 等任何捏造的脚本。
+1. **绝对禁止捏造脚本**。你只能使用下方文档中提供的脚本。
 2. **绝对禁止手写 G-code**。严禁使用 `passthrough` 发送原始移动指令。
 3. **绘图必须使用 draw 脚本**。绝对禁止用 `move` 画图。
-4. **绝对禁止拼凑图形**。一次打印任务**只能调用一次** `printer_draw.py`。**绝对禁止**连续多次调用脚本去拼凑模型。如果脚本不支持，直接告诉用户。
+4. **绝对禁止拼凑图形**。一次打印任务**只能调用一次** `printer_draw.py`。
 5. **绝对禁止在 Terminal 中直接执行原始 G-code**。
 6. 运行脚本时必须使用绝对路径 `/opt/data/skills/make/3d-printer/scripts/`。
 
@@ -91,6 +91,10 @@ python3 /opt/data/skills/make/3d-printer/scripts/printer_write.py heat --hotend 
 When the user asks to draw or print ANY shape, you MUST use `printer_draw.py`. DO NOT calculate coordinates manually. DO NOT piece together multiple `line` commands. The script natively supports ALL shapes below.
 
 当用户要求画图或打印任何形状时，你**必须**使用 `printer_draw.py`。**绝对禁止**自己计算坐标，**绝对禁止**用多个 `line` 拼凑图形。脚本原生支持以下所有形状：
+
+**CRITICAL: RESETTING THE BED / 极度重要：重置平台**
+If the user asks to "clear the bed", "reset", "start over", or "print a new object from the center", you MUST pass the `--reset` flag to `printer_draw.py`. This clears the history of previously printed objects and forces the new object to print in the center.
+如果用户要求“清空平台”、“重新开始”、“在中心打一个新东西”，你**必须**在调用 `printer_draw.py` 时传入 `--reset` 参数。这会清空之前的模型记录，强制新模型打在正中心。
 
 **Supported Shapes & Parameters / 支持的形状与参数:**
 - `line`: `--x1 110 --y1 110 --x2 160 --y2 160`
@@ -117,6 +121,11 @@ When the user asks to draw or print ANY shape, you MUST use `printer_draw.py`. D
 - 如果用户指定了自定义填充率（如“50% 填充”），传入 `--infill 50`。
 - If the user requests a rectangular box with **different length and width**, you MUST use `cuboid` instead of `cube`.
 - 如果用户要求打印**长宽不相同**的长方体（如长 40 宽 30），你**必须**使用 `cuboid`，而不是 `cube`。
+
+**IMPORTANT: AUTO-OFFSET FEEDBACK / 重要：自动偏移反馈**
+The `printer_draw.py` script will automatically offset the coordinates if you print multiple objects consecutively to avoid overlapping.
+Pay close attention to the script's output (e.g., `NOTE: Auto-offset triggered... New center is at X=...`). You MUST report this actual center position to the user if it has been shifted.
+如果你连续打印多个物体，脚本会自动偏移坐标以防止重叠。请密切注意脚本输出的真实坐标（例如 `NOTE: Auto-offset triggered... New center is at X=...`）。如果坐标发生了偏移，你**必须**将这个真实的中心位置告知用户。
 
 **CRITICAL: SMART SUPPORT / 极度重要：智能支撑**
 The script natively supports **smart overhang detection** and is enabled by default. You **DO NOT** need to pass any `--support` flag. It automatically adds supports to `sphere` and `ellipsoid` bottoms, while keeping `cube` and `pyramid` support-free. If the user explicitly says **"不要支撑" (no support)**, you MUST pass `--no-support`.

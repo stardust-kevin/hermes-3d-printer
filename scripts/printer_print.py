@@ -18,12 +18,12 @@ def main():
     try:
         print("Connecting to printer...")
         comm.connect()
-        
+
         print(f"Starting print: {args.file}")
         for progress in comm.stream_file(args.file, window_size=args.window):
             sys.stdout.write(f"\rProgress: {progress}%")
             sys.stdout.flush()
-            
+
         print("\nSUCCESS: All G-code sent successfully. The printer is now executing the job.")
     except KeyboardInterrupt:
         print("\n\nPrint interrupted by user. Sending emergency stop...")
@@ -35,7 +35,7 @@ def main():
     except Exception as e:
         print(f"\nPrint failed: {e}", file=sys.stderr)
         try:
-            comm.send_command("M112") 
+            comm.send_command("M112")
         except Exception:
             pass
         sys.exit(1)

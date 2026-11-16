@@ -1,7 +1,6 @@
 > ⚠️ **Status: Unverified / 未验证**
-> This skill has NOT been tested on real hardware yet.
-> Use at your own risk. Do NOT use for unattended printing.
-> 本 skill 尚未在真实硬件上验证。使用风险自负。禁止无人看管打印。
+> While verified in simulation, this skill has NOT been tested on real hardware yet. Please use with caution and do NOT run unattended.
+> 虽已在仿真平台验证，但本 skill 尚未在真实硬件上测试。请谨慎使用，请勿无人值守打印。
 
 <!-- Language Switcher / 语言切换 -->
 <p align="center">

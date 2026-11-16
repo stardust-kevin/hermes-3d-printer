@@ -70,7 +70,7 @@ class PrinterComm:
             if not chunk:
                 raise ConnectionError("Connection closed by remote host.")
             self.buffer += chunk.decode("utf-8", errors="replace")
-        
+
         line, self.buffer = self.buffer.split("\n", 1)
         return line.strip()
 
@@ -82,7 +82,7 @@ class PrinterComm:
         """
         if not self.sock:
             self.connect()
-        
+
         try:
             self.sock.sendall((cmd + "\n").encode("ascii"))
         except OSError as e:
@@ -96,9 +96,9 @@ class PrinterComm:
             line = self._read_line()
             if not line or line.lower().startswith("echo:"):
                 continue
-            
+
             lines.append(line)
-            
+
             lower_line = line.lower()
             if lower_line == "ok" or lower_line.startswith("ok "):
                 return 0, lines
@@ -128,7 +128,7 @@ class PrinterComm:
         total = len(lines)
         if total == 0:
             raise ValueError("File is empty or contains no valid G-code.")
-            
+
         sent_idx = 0
         acked_idx = 0
 

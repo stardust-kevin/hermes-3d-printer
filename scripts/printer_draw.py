@@ -7,6 +7,7 @@ import sys
 import math
 import argparse
 import os
+import json
 import printer_comm
 
 class GCodeGenerator:
@@ -19,10 +20,10 @@ class GCodeGenerator:
         self.travel_speed = travel_speed
         self.infill = infill
         self.support = support
-        
+
         self.filament_area = math.pi * (1.75 / 2) ** 2
         self.e_multiplier = (self.layer_height * self.line_width) / self.filament_area
-        
+
         self.current_e = 0.0
         self.curr_x = 0.0
         self.curr_y = 0.0
@@ -89,12 +90,12 @@ class GCodeGenerator:
         half_h = (h / 2.0) - (self.line_width / 2.0)
         x_min, x_max = cx - half_w, cx + half_w
         y_min, y_max = cy - half_h, cy + half_h
-        
+
         if x_min >= x_max or y_min >= y_max:
             return
 
         spacing = self.line_width * (100.0 / max(density, 1))
-        
+
         if angle_deg == 45:
             c_min = y_min - x_max
             c_max = y_max - x_min
@@ -119,7 +120,7 @@ class GCodeGenerator:
                         self.curr_x, self.curr_y = p1
                         is_first = False
                     else:
-                        self.move_to(p1[0], p1[1], extrude=True)
+                        self.move_to(p1[0], p1[1], extrude=False)
                     self.move_to(p2[0], p2[1], extrude=True)
                     prev_end = p2
                 c += spacing
@@ -147,7 +148,7 @@ class GCodeGenerator:
                         self.curr_x, self.curr_y = p1
                         is_first = False
                     else:
-                        self.move_to(p1[0], p1[1], extrude=True)
+                        self.move_to(p1[0], p1[1], extrude=False)
                     self.move_to(p2[0], p2[1], extrude=True)
                     prev_end = p2
                 c += spacing
@@ -158,39 +159,39 @@ class GCodeGenerator:
         theta = math.radians(angle_deg)
         cos_t = math.cos(theta)
         sin_t = math.sin(theta)
-        
+
         A = (cos_t**2) / (rx**2) + (sin_t**2) / (ry**2)
         ymax_prime = math.sqrt((rx * sin_t)**2 + (ry * cos_t)**2)
         c_prime = -ymax_prime + spacing / 2.0
         reverse = False
         is_first = True
-        
+
         while c_prime < ymax_prime:
             B = 2 * c_prime * sin_t * cos_t * (1/(ry**2) - 1/(rx**2))
             C = (c_prime**2) * ((sin_t**2)/(rx**2) + (cos_t**2)/(ry**2)) - 1
-            
+
             delta = B**2 - 4 * A * C
             if delta > 0:
                 dx_prime = math.sqrt(delta)
                 x1_prime = (-B - dx_prime) / (2 * A)
                 x2_prime = (-B + dx_prime) / (2 * A)
-                
+
                 x1 = x1_prime * cos_t - c_prime * sin_t + cx
                 y1 = x1_prime * sin_t + c_prime * cos_t + cy
-                
+
                 x2 = x2_prime * cos_t - c_prime * sin_t + cx
                 y2 = x2_prime * sin_t + c_prime * cos_t + cy
-                
+
                 if reverse:
                     x1, y1, x2, y2 = x2, y2, x1, y1
-                
+
                 if is_first:
                     self._add(f"G0 F{self.travel_speed} X{x1:.2f} Y{y1:.2f}")
                     self.curr_x, self.curr_y = x1, y1
                     is_first = False
                 else:
-                    self.move_to(x1, y1, extrude=True)
-                
+                    self.move_to(x1, y1, extrude=False)
+
                 self.move_to(x2, y2, extrude=True)
                 reverse = not reverse
             c_prime += spacing
@@ -249,63 +250,33 @@ class GCodeGenerator:
                             self.curr_x, self.curr_y = p1
                             is_first = False
                         else:
-                            self.move_to(p1[0], p1[1], extrude=True)
+                            self.move_to(p1[0], p1[1], extrude=False)
 
                         self.move_to(p2[0], p2[1], extrude=True)
                         prev_end = p2
             c += spacing
 
-    def _draw_continuous_support(self, cx, cy, radius, current_r, angle):
-        """Draw a continuous zigzag support grid for overhangs."""
+    def _draw_support_grid(self, cx, cy, max_rx, max_ry, current_rx, current_ry, gap):
+        """Draw a continuous point-grid support for overhangs."""
         self._add(";TYPE:SUPPORT")
-        gap = 0.4
-        spacing = 2.0
-        max_r = radius
-        cur_r = current_r + gap
+        spacing = 2.5
+        max_r = max(max_rx, max_ry)
 
-        is_first = True
-        reverse = False
+        for x in range(int(cx - max_r), int(cx + max_r) + 1, int(spacing)):
+            for y in range(int(cy - max_r), int(cy + max_r) + 1, int(spacing)):
+                max_dist_x = (x - cx) / max_rx if max_rx > 0 else 0
+                max_dist_y = (y - cy) / max_ry if max_ry > 0 else 0
+                if (max_dist_x**2 + max_dist_y**2) > 1.0:
+                    continue
 
-        # Scan across the bounding box of the maximum footprint
-        for y in range(int(cy - max_r), int(cy + max_r) + 1, int(spacing)):
-            # Find intersections with the outer bound and inner bound
-            dy = y - cy
-            if abs(dy) > max_r:
-                continue
+                cur_dist_x = (x - cx) / (current_rx + gap) if (current_rx + gap) > 0 else 0
+                cur_dist_y = (y - cy) / (current_ry + gap) if (current_ry + gap) > 0 else 0
+                if (cur_dist_x**2 + cur_dist_y**2) <= 1.0:
+                    continue
 
-            dx_outer = math.sqrt(max(0, max_r**2 - dy**2))
-            x_start = cx - dx_outer
-            x_end = cx + dx_outer
-
-            # Now clip the line with the inner circle (current model layer)
-            if abs(dy) < cur_r:
-                dx_inner = math.sqrt(cur_r**2 - dy**2)
-                # If the support line passes through the model, split it
-                # Left segment: x_start to cx - dx_inner
-                # Right segment: cx + dx_inner to x_end
-                segments = [(x_start, cx - dx_inner), (cx + dx_inner, x_end)]
-            else:
-                # Line is entirely outside the model
-                segments = [(x_start, x_end)]
-
-            for seg_start, seg_end in segments:
-                if seg_end - seg_start < spacing:
-                    continue # Skip tiny fragments
-
-                if reverse:
-                    p1, p2 = (seg_end, y), (seg_start, y)
-                else:
-                    p1, p2 = (seg_start, y), (seg_end, y)
-
-                if is_first:
-                    self._add(f"G0 F{self.travel_speed} X{p1[0]:.2f} Y{p1[1]:.2f} Z{self.curr_z:.2f}")
-                    self.curr_x, self.curr_y = p1
-                    is_first = False
-                else:
-                    self.move_to(p1[0], p1[1], extrude=False) # Travel to next support start
-
-                self.move_to(p2[0], p2[1], extrude=True)
-                reverse = not reverse
+                self._add(f"G0 F{self.travel_speed} X{x:.2f} Y{y:.2f} Z{self.curr_z:.2f}")
+                self.curr_x, self.curr_y = x, y
+                self.move_to(x + 2.0, y, extrude=True)
 
     def generate_2d_shape(self, shape_type, cx, cy, params):
         self.generate_header()
@@ -328,7 +299,7 @@ class GCodeGenerator:
             self.draw_polygon(pts)
             if self.infill > 0:
                 self._add(";TYPE:FILL")
-                self.fill_rect(cx, cy, w, h, self.infill, 45) 
+                self.fill_rect(cx, cy, w, h, self.infill, 45)
         elif shape_type in ("circle", "ellipse"):
             rx = params.get("diameter", 40) / 2.0 if shape_type == "circle" else params.get("rx", 20)
             ry = params.get("diameter", 40) / 2.0 if shape_type == "circle" else params.get("ry", 10)
@@ -362,7 +333,7 @@ class GCodeGenerator:
                 pts_out.append((cx + r_out * math.cos(angle), cy + r_out * math.sin(angle)))
             self._add(";TYPE:WALL-OUTER")
             self.draw_polygon(pts_out)
-            
+
             pts_in = []
             for i in range(65):
                 angle = (-2 * math.pi * i) / 64
@@ -377,18 +348,18 @@ class GCodeGenerator:
         size = params.get("size", 20)
         diameter = params.get("diameter", 40)
         height = params.get("height", 5)
-        
+
         if shape_type == "sphere":
             height = diameter
-            
+
         layers = int(height / self.layer_height)
         solid_layers = 3
-        
+
         for layer in range(layers):
             z = (layer + 1) * self.layer_height
             self.curr_z = z
             self._add(f";LAYER:{layer}")
-            
+
             current_density = 100 if (layer < solid_layers or layer >= layers - solid_layers) else self.infill
             angle = 45 if layer % 2 == 0 else -45
 
@@ -429,7 +400,7 @@ class GCodeGenerator:
                 self.draw_polygon(pts)
                 self._add(";TYPE:FILL")
                 self.fill_ellipse(cx, cy, r - (self.line_width/2.0), r - (self.line_width/2.0), current_density, angle)
-                
+
             elif shape_type == "sphere":
                 radius = diameter / 2.0
                 z_offset = z - radius
@@ -437,7 +408,7 @@ class GCodeGenerator:
                     current_r = math.sqrt(radius**2 - z_offset**2)
 
                     if self.support and z < radius:
-                        self._draw_continuous_support(cx, cy, radius, current_r, angle)
+                        self._draw_support_grid(cx, cy, radius, radius, current_r, current_r, 0.4)
 
                     pts = []
                     for i in range(65):
@@ -475,7 +446,7 @@ class GCodeGenerator:
                     current_ry = ry * math.sqrt(1 - (z_offset/rz)**2)
 
                     if self.support and z < rz:
-                        self._draw_continuous_support(cx, cy, rx, current_rx, angle)
+                        self._draw_support_grid(cx, cy, rx, ry, current_rx, current_ry, 0.4)
 
                     pts = []
                     for i in range(65):
@@ -513,11 +484,13 @@ def main():
     parser.add_argument("--infill", type=int, default=20, help="Infill density (0-100)")
     parser.add_argument("--hollow", action="store_true", help="Draw hollow shape (infill 0)")
     parser.add_argument("--no-support", action="store_false", dest="support", help="Disable automatic supports")
-    
+    parser.add_argument("--reset", action="store_true", help="Reset the bed occupation history")
+
     max_x = float(os.environ.get("PRINTER_MAX_X", 220.0))
     max_y = float(os.environ.get("PRINTER_MAX_Y", 220.0))
-    parser.add_argument("--cx", type=float, default=max_x/2.0, help="Center X")
-    parser.add_argument("--cy", type=float, default=max_y/2.0, help="Center Y")
+
+    parser.add_argument("--cx", type=float, default=None, help="Center X")
+    parser.add_argument("--cy", type=float, default=None, help="Center Y")
 
     parser.add_argument("--x1", type=float, help="Line start X")
     parser.add_argument("--y1", type=float, help="Line start Y")
@@ -525,32 +498,182 @@ def main():
     parser.add_argument("--y2", type=float, help="Line end Y")
 
     args = parser.parse_args()
-    
+
+    history_file = "/tmp/printer_history.json"
+
+    if args.reset:
+        if os.path.exists(history_file):
+            os.remove(history_file)
+        print("Bed occupation history cleared.")
+
+    # --- Dynamic Bounding Box calculation ---
+    shape_w, shape_d = 20, 20
+    if args.shape in ("sphere", "cylinder", "circle", "ring", "cone", "ellipsoid"):
+        shape_w = shape_d = args.diameter
+    elif args.shape == "ellipse":
+        shape_w = args.rx * 2
+        shape_d = args.ry * 2
+    elif args.shape in ("cube", "pyramid", "polygon", "triangle"):
+        shape_w = shape_d = args.size
+    elif args.shape == "cuboid":
+        shape_w = args.w
+        shape_d = args.d
+    elif args.shape == "rectangle":
+        shape_w = args.w
+        shape_d = args.h
+    elif args.shape == "line":
+        x1 = args.x1 if args.x1 is not None else (args.cx or max_x/2.0)
+        y1 = args.y1 if args.y1 is not None else (args.cy or max_y/2.0)
+        x2 = args.x2 if args.x2 is not None else x1 + 50
+        y2 = args.y2 if args.y2 is not None else y1 + 50
+        shape_w = abs(x2 - x1)
+        shape_d = abs(y2 - y1)
+
+    if shape_w > max_x - 10.0 or shape_d > max_y - 10.0:
+        print(f"Error: Model size ({shape_w}x{shape_d}mm) exceeds the build volume ({max_x}x{max_y}mm) with margins.", file=sys.stderr)
+        sys.exit(1)
+
+    half_w = shape_w / 2.0
+    half_d = shape_d / 2.0
+    safe_margin = 5.0
+
+    # --- Auto-placement logic ---
+    used_bboxes = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, "r") as f:
+                used_bboxes = json.load(f)
+        except Exception:
+            used_bboxes = []
+
+    auto_offset_triggered = False
+
+    # Detect if the provided coordinates are actually the default center
+    # This prevents the LLM from accidentally disabling the auto-arrangement
+    is_default_center = False
+    if args.cx is not None and args.cy is not None:
+        if abs(args.cx - max_x / 2.0) < 1.0 and abs(args.cy - max_y / 2.0) < 1.0:
+            is_default_center = True
+
+    explicit_cx = args.cx is not None and not is_default_center
+    explicit_cy = args.cy is not None and not is_default_center
+
+    if explicit_cx or explicit_cy:
+        cx = args.cx if explicit_cx else max_x / 2.0
+        cy = args.cy if explicit_cy else max_y / 2.0
+
+        if cx - half_w < 0 or cx + half_w > max_x or cy - half_d < 0 or cy + half_d > max_y:
+            print(f"Error: Explicit coordinates ({cx}, {cy}) exceed the build volume limits.", file=sys.stderr)
+            sys.exit(1)
+
+        for ub in used_bboxes:
+            if not (cx + half_w + safe_margin < ub["min_x"] or
+                    cx - half_w - safe_margin > ub["max_x"] or
+                    cy + half_d + safe_margin < ub["min_y"] or
+                    cy - half_d - safe_margin > ub["max_y"]):
+                print(f"Error: Explicit coordinates ({cx}, {cy}) cause a collision with an existing object.", file=sys.stderr)
+                sys.exit(1)
+
+        args.cx = cx
+        args.cy = cy
+    else:
+        # Auto-arrangement (Concentric Spiral Search) starting from center
+        found = False
+        candidate_points = []
+
+        start_x = max_x / 2.0
+        start_y = max_y / 2.0
+        candidate_points.append((start_x, start_y))
+
+        step_x = shape_w + safe_margin * 2
+        step_y = shape_d + safe_margin * 2
+
+        # Generate points in a clockwise spiral ring
+        for ring in range(1, 10):
+            # Top edge
+            for i in range(-ring, ring + 1):
+                candidate_points.append((start_x + i * step_x, start_y - ring * step_y))
+            # Right edge
+            for i in range(-ring + 1, ring + 1):
+                candidate_points.append((start_x + ring * step_x, start_y + i * step_y))
+            # Bottom edge
+            for i in range(ring - 1, -ring - 1, -1):
+                candidate_points.append((start_x + i * step_x, start_y + ring * step_y))
+            # Left edge
+            for i in range(ring - 1, -ring, -1):
+                candidate_points.append((start_x - ring * step_x, start_y + i * step_y))
+
+        for cx, cy in candidate_points:
+            if cx - half_w < 0 or cx + half_w > max_x or cy - half_d < 0 or cy + half_d > max_y:
+                continue
+
+            collides = False
+            for ub in used_bboxes:
+                if not (cx + half_w + safe_margin < ub["min_x"] or
+                        cx - half_w - safe_margin > ub["max_x"] or
+                        cy + half_d + safe_margin < ub["min_y"] or
+                        cy - half_d - safe_margin > ub["max_y"]):
+                    collides = True
+                    break
+
+            if not collides:
+                args.cx = cx
+                args.cy = cy
+                found = True
+                auto_offset_triggered = True
+                break
+
+        if not found:
+            print("Error: Could not find a free spot on the bed for the current model.", file=sys.stderr)
+            sys.exit(1)
+
     if args.hollow:
         args.infill = 0
 
     gen = GCodeGenerator(layer_height=args.layer, speed=args.speed, infill=args.infill, support=args.support)
-    
+
     params = vars(args)
-    
-    if args.shape == "line":
-        gen.generate_header()
-        gen.curr_z = gen.layer_height
-        gen._add(";TYPE:WALL-OUTER")
-        x1 = args.x1 if args.x1 is not None else args.cx
-        y1 = args.y1 if args.y1 is not None else args.cy
-        x2 = args.x2 if args.x2 is not None else args.cx + 50
-        y2 = args.y2 if args.y2 is not None else args.cy + 50
-        gen.draw_polygon([(x1, y1), (x2, y2)])
-        gen.generate_footer()
-    elif args.shape in ("triangle", "rectangle", "circle", "ellipse", "polygon", "ring"):
-        gen.generate_2d_shape(args.shape, args.cx, args.cy, params)
+
+    try:
+        if args.shape == "line":
+            gen.generate_header()
+            gen.curr_z = gen.layer_height
+            gen._add(";TYPE:WALL-OUTER")
+            x1 = args.x1 if args.x1 is not None else args.cx
+            y1 = args.y1 if args.y1 is not None else args.cy
+            x2 = args.x2 if args.x2 is not None else args.cx + 50
+            y2 = args.y2 if args.y2 is not None else args.cy + 50
+            gen.draw_polygon([(x1, y1), (x2, y2)])
+            gen.generate_footer()
+        elif args.shape in ("triangle", "rectangle", "circle", "ellipse", "polygon", "ring"):
+            gen.generate_2d_shape(args.shape, args.cx, args.cy, params)
+        else:
+            gen.generate_3d_shape(args.shape, args.cx, args.cy, params)
+
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write("\n".join(gen.gcode_lines))
+    except Exception as e:
+        print(f"Error: Failed to generate G-code. {e}", file=sys.stderr)
+        sys.exit(1)
+
+    new_bbox = {
+        "min_x": args.cx - half_w,
+        "max_x": args.cx + half_w,
+        "min_y": args.cy - half_d,
+        "max_y": args.cy + half_d
+    }
+    used_bboxes.append(new_bbox)
+
+    try:
+        with open(history_file, "w") as f:
+            json.dump(used_bboxes, f)
+    except Exception:
+        pass
+
+    if auto_offset_triggered:
+        print(f"Generated {args.shape} G-code and saved to {args.output}. NOTE: Auto-offset triggered to avoid overlap. New center is at X={args.cx:.2f}, Y={args.cy:.2f}.")
     else:
-        gen.generate_3d_shape(args.shape, args.cx, args.cy, params)
-        
-    with open(args.output, "w", encoding="utf-8") as f:
-        f.write("\n".join(gen.gcode_lines))
-    print(f"Generated {args.shape} G-code and saved to {args.output}")
+        print(f"Generated {args.shape} G-code and saved to {args.output}. Center is at X={args.cx:.2f}, Y={args.cy:.2f}.")
 
 if __name__ == "__main__":
     main()
